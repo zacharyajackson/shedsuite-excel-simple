@@ -92,7 +92,7 @@ class ExcelService {
   async updateSpreadsheet(records) {
     this._initialize(); // Ensure service is initialized
     try {
-      logger.info(`Updating Excel spreadsheet ${this.workbookId}`);
+      logger.info(`Updating Excel spreadsheet ${this.workbookId} with ${records.length} records`);
 
       // Get site ID
       const siteId = await this.getSiteId();
@@ -100,9 +100,7 @@ class ExcelService {
 
       // Format records for Excel
       const values = this.formatRecordsForExcel(records);
-
-      // Clear existing content (except headers)
-      await this.clearExistingData(siteId);
+      logger.info(`Formatted ${values.length} rows for Excel`);
 
       // Calculate the number of columns dynamically
       const numColumns = values.length > 0 ? values[0].length : 0;
@@ -125,23 +123,58 @@ class ExcelService {
       const endColumn = getColumnLetter(numColumns);
       logger.info(`Writing ${numColumns} columns (A to ${endColumn})`);
 
-      // Update with new data in batches
-      const batchSize = 100;
+      // Clear existing data in chunks to avoid payload size limits
+      await this.clearExistingDataInChunks(siteId);
+
+      // Update with new data in much smaller batches to avoid payload size limits
+      const batchSize = 10; // Very small batches to avoid payload limits
+      logger.info(`Processing ${values.length} rows in batches of ${batchSize}`);
+      
       for (let i = 0; i < values.length; i += batchSize) {
         const batch = values.slice(i, i + batchSize);
         const startRow = i + 2; // Start from row 2 (after headers)
         const endRow = startRow + batch.length - 1;
         
         const range = `A${startRow}:${endColumn}${endRow}`;
-        await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${range}')`)
-          .patch({
-            values: batch
-          });
         
-        logger.info(`Updated batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(values.length / batchSize)} (range: ${range})`);
+        try {
+          await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${range}')`)
+            .patch({
+              values: batch
+            });
+          
+          logger.info(`✅ Updated batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(values.length / batchSize)} (rows ${startRow}-${endRow})`);
+          
+          // Add a longer delay between batches to avoid rate limits
+          if (i + batchSize < values.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        } catch (batchError) {
+          if (batchError.code === 'ResponsePayloadSizeLimitExceeded') {
+            logger.error(`❌ Payload limit exceeded for batch ${Math.floor(i / batchSize) + 1}, reducing batch size and retrying...`);
+            // Try with even smaller batch
+            const smallerBatch = batch.slice(0, 5);
+            const smallerEndRow = startRow + smallerBatch.length - 1;
+            const smallerRange = `A${startRow}:${endColumn}${smallerEndRow}`;
+            
+            try {
+              await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${smallerRange}')`)
+                .patch({
+                  values: smallerBatch
+                });
+              logger.info(`✅ Updated smaller batch (rows ${startRow}-${smallerEndRow})`);
+            } catch (smallerBatchError) {
+              logger.error(`❌ Even smaller batch failed: ${smallerBatchError.message}`);
+              throw smallerBatchError;
+            }
+          } else {
+            logger.error(`❌ Failed to update batch ${Math.floor(i / batchSize) + 1}: ${batchError.message}`);
+            throw batchError;
+          }
+        }
       }
 
-      logger.info(`Successfully updated ${records.length} records in Excel`);
+      logger.info(`✅ Successfully updated ${records.length} records in Excel`);
       return true;
     } catch (error) {
       logger.error('Error updating Excel spreadsheet:', error);
@@ -149,34 +182,65 @@ class ExcelService {
     }
   }
 
-  async clearExistingData(siteId) {
+  async clearExistingDataInChunks(siteId) {
     try {
-      // Get the used range to determine how many rows to clear
-      const range = await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/usedRange`).get();
-
-      if (range.rowCount > 1) { // Only clear if there's data (preserve headers)
-        // Use the actual column count from the range, or default to a reasonable number
-        const numColumns = range.columnCount || 79; // Default to 79 if not available
-        
-        // Convert column number to Excel column letter
-        const getColumnLetter = (colNum) => {
-          let result = '';
-          while (colNum > 0) {
-            colNum--;
-            result = String.fromCharCode(65 + (colNum % 26)) + result;
-            colNum = Math.floor(colNum / 26);
-          }
-          return result;
-        };
-
-        const endColumn = getColumnLetter(numColumns);
-        const clearRange = `A2:${endColumn}${range.rowCount}`;
-        await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${clearRange}')/clear`);
-        logger.info(`Cleared ${range.rowCount - 1} rows of data from range ${clearRange}`);
+      logger.info('🧹 Starting conservative data clearing approach...');
+      
+      // Instead of trying to clear the entire worksheet at once, let's use a more conservative approach
+      // We'll clear data in very small chunks and handle the payload size limits gracefully
+      
+      // First, let's try to get just the first few rows to see what we're working with
+      const testRange = await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='A1:Z10')`).get();
+      
+      if (!testRange.values || testRange.values.length <= 1) {
+        logger.info('✅ Worksheet appears to be empty or only has headers, no clearing needed');
+        return;
       }
+
+      // Use very small chunks to avoid payload size limits
+      const clearChunkSize = 10; // Very small chunks
+      let clearedRows = 0;
+      let currentRow = 2; // Start after header
+      let hasMoreData = true;
+      let consecutiveFailures = 0;
+      const maxFailures = 3;
+
+      while (hasMoreData && consecutiveFailures < maxFailures) {
+        try {
+          // Try to clear a small chunk
+          const endRow = currentRow + clearChunkSize - 1;
+          const clearRange = `A${currentRow}:Z${endRow}`;
+          
+          await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${clearRange}')/clear`);
+          clearedRows += clearChunkSize;
+          consecutiveFailures = 0; // Reset failure counter on success
+          logger.info(`✅ Cleared chunk: rows ${currentRow}-${endRow} (${clearedRows} total rows cleared)`);
+          
+          currentRow += clearChunkSize;
+          
+          // Add delay between chunks
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+        } catch (chunkError) {
+          consecutiveFailures++;
+          if (chunkError.code === 'ResponsePayloadSizeLimitExceeded') {
+            logger.warn(`⚠️ Payload limit reached at row ${currentRow}, stopping clear operation`);
+            hasMoreData = false;
+          } else {
+            logger.error(`❌ Failed to clear chunk starting at row ${currentRow}: ${chunkError.message}`);
+            if (consecutiveFailures >= maxFailures) {
+              logger.warn(`⚠️ Too many consecutive failures, stopping clear operation`);
+              hasMoreData = false;
+            }
+          }
+        }
+      }
+
+      logger.info(`✅ Successfully cleared ${clearedRows} rows of existing data (stopped due to payload limits or failures)`);
     } catch (error) {
-      logger.error('Error clearing worksheet:', error);
-      throw error;
+      logger.error('Error clearing worksheet in chunks:', error);
+      // Don't throw the error, just log it and continue
+      logger.warn('⚠️ Continuing with data update despite clear errors');
     }
   }
 

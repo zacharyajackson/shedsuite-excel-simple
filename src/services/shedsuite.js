@@ -325,7 +325,7 @@ class ShedSuiteService {
                   hasMoreData = false;
                 } else {
                   console.log(`✅ Test page ${page + 1} returned ${testRecords.length} records - continuing...`);
-                  page++;
+              page++;
                 }
               } catch (testError) {
                 console.log(`🛑 Test page ${page + 1} failed - likely end of data: ${testError.message}`);
