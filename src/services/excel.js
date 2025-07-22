@@ -10,6 +10,9 @@ class ExcelService {
     this.client = null;
     this.workbookId = null;
     this.worksheetName = null;
+    this.siteId = null;
+    this.hostname = null;
+    this.sitePath = null;
   }
 
   _initialize() {
@@ -25,6 +28,10 @@ class ExcelService {
     if (!process.env.AZURE_TENANT_ID) {
       logger.warn('AZURE_TENANT_ID is not available yet, Excel service will be unavailable');
       throw new Error('AZURE_TENANT_ID is required');
+    }
+    if (!process.env.AZURE_CLIENT_SECRET) {
+      logger.warn('AZURE_CLIENT_SECRET is not available yet, Excel service will be unavailable');
+      throw new Error('AZURE_CLIENT_SECRET is required');
     }
 
     // Initialize MSAL with client credentials flow
@@ -53,8 +60,33 @@ class ExcelService {
 
     this.workbookId = process.env.EXCEL_WORKBOOK_ID;
     this.worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Sheet1';
+    
+    // SharePoint site details
+    this.hostname = process.env.SHAREPOINT_HOSTNAME || 'heartlandcapital.sharepoint.com';
+    this.sitePath = process.env.SHAREPOINT_SITE_PATH || '/sites/Stor-Mor';
 
     this._initialized = true;
+  }
+
+  /**
+   * Get SharePoint site ID dynamically
+   * @returns {Promise<string>} Site ID
+   */
+  async getSiteId() {
+    if (this.siteId) {
+      return this.siteId;
+    }
+
+    try {
+      logger.info('Getting SharePoint site ID...');
+      const site = await this.client.api(`/sites/${this.hostname}:${this.sitePath}`).get();
+      this.siteId = site.id;
+      logger.debug(`Site ID retrieved: ${this.siteId}`);
+      return this.siteId;
+    } catch (error) {
+      logger.error('Failed to get SharePoint site ID:', error);
+      throw error;
+    }
   }
 
   async updateSpreadsheet(records) {
@@ -62,16 +94,30 @@ class ExcelService {
     try {
       logger.info(`Updating Excel spreadsheet ${this.workbookId}`);
 
+      // Get site ID
+      const siteId = await this.getSiteId();
+      logger.info(`Site ID obtained: ${siteId}`);
+
       // Format records for Excel
       const values = this.formatRecordsForExcel(records);
 
       // Clear existing content (except headers)
-      await this.clearWorksheet();
+      await this.clearExistingData(siteId);
 
-      // Update with new data
-      await this.client.api(`/me/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='A2')`).patch({
-        values
-      });
+      // Update with new data in batches
+      const batchSize = 100;
+      for (let i = 0; i < values.length; i += batchSize) {
+        const batch = values.slice(i, i + batchSize);
+        const startRow = i + 2; // Start from row 2 (after headers)
+        const endRow = startRow + batch.length - 1;
+        
+        await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='A${startRow}:CA${endRow}')`)
+          .patch({
+            values: batch
+          });
+        
+        logger.info(`Updated batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(values.length / batchSize)}`);
+      }
 
       logger.info(`Successfully updated ${records.length} records in Excel`);
       return true;
@@ -81,16 +127,15 @@ class ExcelService {
     }
   }
 
-  async clearWorksheet() {
-    this._initialize(); // Ensure service is initialized
+  async clearExistingData(siteId) {
     try {
       // Get the used range to determine how many rows to clear
-      const range = await this.client.api(`/me/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/usedRange`).get();
+      const range = await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/usedRange`).get();
 
       if (range.rowCount > 1) { // Only clear if there's data (preserve headers)
-        await this.client.api(`/me/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='A2:Z${range.rowCount}')`).patch({
-          values: Array(range.rowCount - 1).fill(Array(26).fill(''))
-        });
+        const clearRange = `A2:Z${range.rowCount}`;
+        await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${clearRange}')/clear`);
+        logger.info(`Cleared ${range.rowCount - 1} rows of data`);
       }
     } catch (error) {
       logger.error('Error clearing worksheet:', error);
@@ -173,13 +218,15 @@ class ExcelService {
 
       // Try to access the workbook to verify connectivity
       try {
-        await this.client.api(`/me/drive/items/${this.workbookId}`).get();
+        const siteId = await this.getSiteId();
+        await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}`).get();
         
         return {
           status: 'healthy',
           timestamp: new Date().toISOString(),
           workbookId: this.workbookId,
-          worksheetName: this.worksheetName
+          worksheetName: this.worksheetName,
+          siteId: siteId
         };
       } catch (error) {
         return {
@@ -219,11 +266,13 @@ class ExcelService {
       }
 
       // Test connectivity by trying to access the workbook
-      await this.client.api(`/me/drive/items/${this.workbookId}`).get();
+      const siteId = await this.getSiteId();
+      await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}`).get();
       
       logger.info('Excel client initialized successfully', {
         workbookId: this.workbookId,
-        worksheetName: this.worksheetName
+        worksheetName: this.worksheetName,
+        siteId: siteId
       });
     } catch (error) {
       logger.error('Failed to initialize Excel client:', error);
