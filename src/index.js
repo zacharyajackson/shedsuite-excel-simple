@@ -196,81 +196,108 @@ process.on('unhandledRejection', (reason, promise) => {
 
 async function startServices() {
   try {
+    console.log('🔧 Starting services initialization...');
     logger.info('Starting services initialization...');
 
     // Test connections first
+    console.log('🔌 Testing ShedSuite API connection...');
     logger.info('Testing ShedSuite API connection...');
     try {
       const recordCount = await shedsuite.getTotalRecordCount();
+      console.log(`✅ ShedSuite API connection successful - ${recordCount} records available`);
       logger.info('ShedSuite API connection successful', { recordCount });
     } catch (error) {
+      console.error(`❌ ShedSuite API connection failed: ${error.message}`);
       logger.error('ShedSuite API connection failed:', error);
       // Don't throw - allow other services to start
+      console.log('⚠️  ShedSuite service will be unavailable');
       logger.warn('ShedSuite service will be unavailable');
     }
 
+    console.log('🔌 Testing Excel API connection...');
     logger.info('Testing Excel API connection...');
     try {
       await excel.initializeClient();
+      console.log('✅ Excel API connection successful');
       logger.info('Excel API connection successful');
     } catch (error) {
+      console.error(`❌ Excel API connection failed: ${error.message}`);
       logger.error('Excel API connection failed:', error);
       // Don't throw - allow other services to start
+      console.log('⚠️  Excel service will be unavailable');
       logger.warn('Excel service will be unavailable');
     }
 
-    // Perform initial full sync only if both services are available
-    logger.info('Performing initial full sync...');
-    try {
-      // Register this operation with the graceful shutdown handler
-      const syncOperationId = 'initial-full-sync-' + Date.now();
-      const unregisterSync = gracefulShutdown.registerOperation(syncOperationId, {
-        type: 'sync',
-        name: 'Initial Full Sync',
-        startTime: new Date()
-      }, async () => {
-        // Cleanup function that will be called during shutdown
-        logger.info('Cleaning up initial sync operation during shutdown');
-        // No specific cleanup needed for read-only operation
-        return Promise.resolve();
-      });
+    // Mark as initialized early so health checks work
+    isFullyInitialized = true;
+    console.log('✅ Application is now initialized and ready to serve requests');
+    logger.info('Application is now initialized and ready to serve requests');
 
-      const startTime = Date.now();
-      logger.info('Fetching all records from ShedSuite API...');
-      const records = await shedsuite.fetchAllRecords({});
+    // Perform initial full sync in the background (non-blocking)
+    console.log('🔄 Starting initial full sync in background (will run in 5 seconds)...');
+    logger.info('Starting initial full sync in background...');
+    setTimeout(async () => {
+      try {
+        console.log('🔄 Beginning initial full sync...');
+        // Register this operation with the graceful shutdown handler
+        const syncOperationId = 'initial-full-sync-' + Date.now();
+        const unregisterSync = gracefulShutdown.registerOperation(syncOperationId, {
+          type: 'sync',
+          name: 'Initial Full Sync',
+          startTime: new Date()
+        }, async () => {
+          // Cleanup function that will be called during shutdown
+          logger.info('Cleaning up initial sync operation during shutdown');
+          // No specific cleanup needed for read-only operation
+          return Promise.resolve();
+        });
 
-      logger.info(`Formatting ${records.length} records for Excel...`);
-      const formattedRecords = shedsuite.formatRecordsForExport(records);
+        const startTime = Date.now();
+        console.log('📥 Fetching all records from ShedSuite API...');
+        logger.info('Fetching all records from ShedSuite API...');
+        const records = await shedsuite.fetchAllRecords({});
 
-      logger.info(`Updating Excel spreadsheet with ${formattedRecords.length} records...`);
-      await excel.updateSpreadsheet(formattedRecords);
+        console.log(`📊 Formatting ${records.length} records for Excel...`);
+        logger.info(`Formatting ${records.length} records for Excel...`);
+        const formattedRecords = shedsuite.formatRecordsForExport(records);
 
-      const duration = Date.now() - startTime;
-      logger.info('Initial full sync completed successfully:', {
-        recordsCount: formattedRecords.length,
-        duration: `${duration}ms`,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Unregister the operation since it completed successfully
-      unregisterSync();
-    } catch (error) {
-      logger.error('Initial full sync failed:', error);
-      // Don't throw here - allow the service to start even if initial sync fails
-      logger.warn('Service will continue without initial sync data');
-    }
+        console.log(`📈 Updating Excel spreadsheet with ${formattedRecords.length} records...`);
+        logger.info(`Updating Excel spreadsheet with ${formattedRecords.length} records...`);
+        await excel.updateSpreadsheet(formattedRecords);
+
+        const duration = Date.now() - startTime;
+        console.log(`✅ Initial full sync completed successfully: ${formattedRecords.length} records in ${duration}ms`);
+        logger.info('Initial full sync completed successfully:', {
+          recordsCount: formattedRecords.length,
+          duration: `${duration}ms`,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Unregister the operation since it completed successfully
+        unregisterSync();
+      } catch (error) {
+        console.error(`❌ Initial full sync failed: ${error.message}`);
+        logger.error('Initial full sync failed:', error);
+        // Don't throw here - allow the service to start even if initial sync fails
+        console.log('⚠️  Service will continue without initial sync data');
+        logger.warn('Service will continue without initial sync data');
+      }
+    }, 5000); // 5 second delay to let the server start first
 
     // Start monitoring services if enabled - DELAYED to ensure environment variables are loaded
     if (process.env.ENABLE_MONITORING !== 'false') {
+      console.log('📊 Monitoring services will be started after a delay...');
       logger.info('Monitoring services will be started after a delay to ensure proper initialization...');
       
       // Delay monitoring service startup to ensure environment variables are loaded
       setTimeout(async () => {
         try {
+          console.log('📊 Starting monitoring services...');
           logger.info('Starting monitoring services after delay...');
           
           // Check if basic environment variables are available before starting monitoring
           if (!process.env.API_BASE_URL || !process.env.API_TOKEN) {
+            console.log('⚠️  Basic environment variables not available, skipping monitoring service startup');
             logger.warn('Basic environment variables not available, skipping monitoring service startup');
             return;
           }
@@ -295,6 +322,7 @@ async function startServices() {
             return enhancedMonitor.stop();
           });
           
+          console.log('✅ Enhanced monitoring service started successfully');
           logger.info('Enhanced monitoring service started successfully');
           
           // Start legacy monitoring service for backward compatibility if needed
@@ -316,6 +344,7 @@ async function startServices() {
               return monitoringService.stop();
             });
             
+            console.log('✅ Legacy monitoring service started for backward compatibility');
             logger.info('Legacy monitoring service started for backward compatibility');
           }
           
@@ -329,10 +358,12 @@ async function startServices() {
             return systemMonitor.stop();
           });
         } catch (error) {
+          console.error(`❌ Failed to start monitoring services: ${error.message}`);
           logger.error('Failed to start monitoring services after delay:', error);
         }
       }, 10000); // 10 second delay
     } else {
+      console.log('📊 Monitoring services are disabled');
       logger.info('Monitoring services are disabled');
     }
 
@@ -357,12 +388,13 @@ async function startServices() {
       });
     });
 
+    console.log('✅ All services initialized successfully');
     logger.info('All services initialized successfully');
-    isFullyInitialized = true;
-    logger.info('Application is now fully initialized and ready to serve requests');
   } catch (error) {
+    console.error(`❌ Failed to start services: ${error.message}`);
     logger.error('Failed to start services:', error);
     // Don't throw - let the server continue running with degraded functionality
+    console.log('⚠️  Application will run with limited functionality due to service initialization failures');
     logger.warn('Application will run with limited functionality due to service initialization failures');
     isFullyInitialized = true; // Mark as initialized even with errors so health check works
   }
@@ -370,18 +402,23 @@ async function startServices() {
 
 // Start the server
 const PORT = process.env.PORT || 3000;
+console.log(`Starting server on port ${PORT}...`);
 const server = app.listen(PORT, () => {
+  console.log(`✅ Server is running on port ${PORT}`);
   logger.info(`Server is running on port ${PORT}`);
   
   // Start services in the background without blocking the server
+  console.log('🚀 Starting background services...');
   const startupTimeout = setTimeout(() => {
     if (!isFullyInitialized) {
+      console.log('⚠️  Service startup timeout reached, marking as initialized with limited functionality');
       logger.warn('Service startup timeout reached, marking as initialized with limited functionality');
       isFullyInitialized = true;
     }
   }, 60000); // 60 second timeout
   
   startServices().catch(error => {
+    console.error('❌ Failed to start services:', error.message);
     logger.error('Failed to start services:', error);
     // Don't exit the process - let the server continue running
     // The health check will show degraded status until services are ready
@@ -389,6 +426,7 @@ const server = app.listen(PORT, () => {
     clearTimeout(startupTimeout);
     if (!isFullyInitialized) {
       isFullyInitialized = true;
+      console.log('✅ Service startup completed, application is now ready');
       logger.info('Service startup completed, application is now ready');
     }
   });

@@ -116,9 +116,11 @@ class ShedSuiteService {
         timeout: this.config.timeout
       };
 
+      console.log(`🌐 Starting HTTP request (timeout: ${this.config.timeout}ms)...`);
       logger.debug('Making API request:', { url: url.replace(this.config.authToken, '***') });
 
       const request = https.get(url, options, (res) => {
+        console.log(`📡 HTTP response received: ${res.statusCode} ${res.statusMessage}`);
         let data = '';
         const chunks = [];
 
@@ -128,28 +130,34 @@ class ShedSuiteService {
         });
 
         res.on('end', () => {
+          console.log(`📦 Response body received (${data.length} characters)`);
           try {
             if (res.statusCode >= 200 && res.statusCode < 300) {
               const parsedData = JSON.parse(data);
+              console.log(`✅ JSON parsed successfully`);
               resolve(parsedData);
             } else {
               const error = new Error(`HTTP ${res.statusCode}: ${data}`);
               error.statusCode = res.statusCode;
               error.response = data;
+              console.error(`❌ HTTP error: ${res.statusCode}`);
               reject(error);
             }
           } catch (parseError) {
+            console.error(`❌ JSON parsing failed: ${parseError.message}`);
             reject(new Error(`JSON parsing failed: ${parseError.message}`));
           }
         });
       });
 
       request.on('error', (err) => {
+        console.error(`❌ Request error: ${err.message}`);
         logger.error('Request error:', err);
         reject(err);
       });
 
       request.on('timeout', () => {
+        console.error(`⏰ Request timeout after ${this.config.timeout}ms`);
         request.destroy();
         reject(new Error(`Request timeout after ${this.config.timeout}ms`));
       });
@@ -253,6 +261,7 @@ class ShedSuiteService {
   async fetchAllRecords(filters = {}) {
     this._initialize(); // Ensure config and errorHandler are initialized
     const startTime = Date.now();
+    console.log('🔄 Starting data fetch from ShedSuite API...');
     logger.info('Starting data fetch from ShedSuite API...', { filters });
 
     try {
@@ -263,17 +272,24 @@ class ShedSuiteService {
       let consecutiveEmptyPages = 0;
       const maxEmptyPages = parseInt(process.env.MAX_CONSECUTIVE_EMPTY_PAGES) || 5;
 
+      console.log(`📄 Will fetch up to ${this.config.maxPages} pages with ${pageSize} records per page`);
+
       while (hasMoreData && page <= this.config.maxPages) {
         const pageUrl = this.buildApiUrl(page, filters);
+        console.log(`📥 Fetching page ${page}... (${allRecords.length} records so far)`);
         logger.info(`Fetching page ${page}...`, {
           url: pageUrl.replace(this.config.authToken, '***'),
           offset: (page - 1) * pageSize
         });
 
         try {
+          console.log(`🔗 Making request to page ${page}...`);
           const pageData = await this.makeRequest(pageUrl);
+          console.log(`✅ Page ${page} request completed, extracting records...`);
+          
           const pageRecords = this.extractRecords(pageData);
 
+          console.log(`📊 Page ${page} results: ${pageRecords.length} records`);
           logger.info(`Page ${page} fetched:`, {
             recordsInPage: pageRecords.length,
             totalRecordsSoFar: allRecords.length + pageRecords.length,
@@ -282,9 +298,11 @@ class ShedSuiteService {
 
           if (pageRecords.length === 0) {
             consecutiveEmptyPages++;
+            console.log(`⚠️  Empty page ${page} (${consecutiveEmptyPages}/${maxEmptyPages} consecutive empty pages)`);
             logger.info(`Empty page ${page} (${consecutiveEmptyPages}/${maxEmptyPages} consecutive empty pages)`);
 
             if (consecutiveEmptyPages >= maxEmptyPages) {
+              console.log('🛑 Multiple consecutive empty pages found, stopping pagination');
               logger.info('Multiple consecutive empty pages found, stopping pagination');
               hasMoreData = false;
             } else {
@@ -294,8 +312,16 @@ class ShedSuiteService {
             consecutiveEmptyPages = 0;
             allRecords = allRecords.concat(pageRecords);
 
+            // Check if we've reached a reasonable limit to prevent infinite loops
+            const maxRecords = parseInt(process.env.MAX_RECORDS) || 10000;
+            if (allRecords.length >= maxRecords) {
+              console.log(`🛑 Reached maximum record limit (${maxRecords}), stopping pagination`);
+              logger.info(`Reached maximum record limit (${maxRecords}), stopping pagination`);
+              hasMoreData = false;
+            }
             // More forgiving stopping condition to handle date parsing issues
-            if (pageRecords.length < (pageSize * (parseFloat(process.env.MIN_PAGE_SIZE_THRESHOLD) || 0.05))) {
+            else if (pageRecords.length < (pageSize * (parseFloat(process.env.MIN_PAGE_SIZE_THRESHOLD) || 0.05))) {
+              console.log(`🛑 Page ${page} had only ${pageRecords.length} records (very small compared to page size ${pageSize}), stopping pagination`);
               logger.info(`Page ${page} had only ${pageRecords.length} records (very small compared to page size ${pageSize}), stopping pagination`);
               hasMoreData = false;
             } else {
@@ -303,6 +329,7 @@ class ShedSuiteService {
             }
           }
         } catch (pageError) {
+          console.error(`❌ Error fetching page ${page}: ${pageError.message}`);
           logger.error(`Error fetching page ${page}:`, {
             error: pageError.message,
             page,
@@ -311,6 +338,7 @@ class ShedSuiteService {
 
           // If it's a date-related error, try to continue
           if (pageError.message.includes('date') || pageError.message.includes('5/27') || pageError.message.includes('parsing')) {
+            console.log('⚠️  Date-related error detected, skipping to next page...');
             logger.warn('Date-related error detected, skipping to next page...');
             page++;
             continue;
@@ -318,6 +346,7 @@ class ShedSuiteService {
 
           consecutiveEmptyPages++;
           if (consecutiveEmptyPages >= maxEmptyPages) {
+            console.log('🛑 Too many consecutive errors, stopping pagination');
             logger.error('Too many consecutive errors, stopping pagination');
             break;
           }
@@ -326,11 +355,13 @@ class ShedSuiteService {
 
         // Add a small delay between requests to avoid overwhelming the API
         if (hasMoreData && page <= this.config.maxPages) {
+          console.log(`⏳ Waiting 100ms before next request...`);
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 
       const duration = Date.now() - startTime;
+      console.log(`✅ Data fetch completed: ${allRecords.length} records in ${duration}ms`);
       logger.info('Data fetch completed:', {
         totalRecords: allRecords.length,
         pagesProcessed: page,
@@ -342,6 +373,7 @@ class ShedSuiteService {
       return allRecords;
     } catch (error) {
       const duration = Date.now() - startTime;
+      console.error(`❌ Data fetch failed after ${duration}ms: ${error.message}`);
       logger.error('Data fetch failed:', {
         error: error.message,
         duration: `${duration}ms`,
@@ -352,8 +384,13 @@ class ShedSuiteService {
   }
 
   extractRecords(data) {
+    console.log(`🔍 Extracting records from response...`);
+    console.log(`📊 Response type: ${typeof data}, isArray: ${Array.isArray(data)}`);
+    console.log(`📊 Response keys: ${Object.keys(data || {}).join(', ')}`);
+    
     // Handle the actual API response format we're seeing
     if (Array.isArray(data)) {
+      console.log(`✅ Processing array response with ${data.length} records`);
       logger.info('Processing array response:', {
         recordCount: data.length,
         sampleRecord: data[0]
@@ -370,21 +407,26 @@ class ShedSuiteService {
 
     // Try other response formats if array format changes
     if (data.data && Array.isArray(data.data)) {
+      console.log(`✅ Processing data.data array with ${data.data.length} records`);
       return data.data;
     }
 
     if (data.results && Array.isArray(data.results)) {
+      console.log(`✅ Processing data.results array with ${data.results.length} records`);
       return data.results;
     }
 
     if (data.records && Array.isArray(data.records)) {
+      console.log(`✅ Processing data.records array with ${data.records.length} records`);
       return data.records;
     }
 
     if (data.items && Array.isArray(data.items)) {
+      console.log(`✅ Processing data.items array with ${data.items.length} records`);
       return data.items;
     }
 
+    console.log(`⚠️  Unexpected API response format`);
     logger.warn('Unexpected API response format:', {
       keys: Object.keys(data),
       dataType: typeof data,

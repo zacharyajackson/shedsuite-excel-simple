@@ -104,6 +104,27 @@ class ExcelService {
       // Clear existing content (except headers)
       await this.clearExistingData(siteId);
 
+      // Calculate the number of columns dynamically
+      const numColumns = values.length > 0 ? values[0].length : 0;
+      if (numColumns === 0) {
+        logger.warn('No data to write to Excel');
+        return true;
+      }
+
+      // Convert column number to Excel column letter (e.g., 1=A, 2=B, 27=AA, etc.)
+      const getColumnLetter = (colNum) => {
+        let result = '';
+        while (colNum > 0) {
+          colNum--;
+          result = String.fromCharCode(65 + (colNum % 26)) + result;
+          colNum = Math.floor(colNum / 26);
+        }
+        return result;
+      };
+
+      const endColumn = getColumnLetter(numColumns);
+      logger.info(`Writing ${numColumns} columns (A to ${endColumn})`);
+
       // Update with new data in batches
       const batchSize = 100;
       for (let i = 0; i < values.length; i += batchSize) {
@@ -111,12 +132,13 @@ class ExcelService {
         const startRow = i + 2; // Start from row 2 (after headers)
         const endRow = startRow + batch.length - 1;
         
-        await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='A${startRow}:CA${endRow}')`)
+        const range = `A${startRow}:${endColumn}${endRow}`;
+        await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${range}')`)
           .patch({
             values: batch
           });
         
-        logger.info(`Updated batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(values.length / batchSize)}`);
+        logger.info(`Updated batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(values.length / batchSize)} (range: ${range})`);
       }
 
       logger.info(`Successfully updated ${records.length} records in Excel`);
@@ -133,7 +155,22 @@ class ExcelService {
       const range = await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/usedRange`).get();
 
       if (range.rowCount > 1) { // Only clear if there's data (preserve headers)
-        const clearRange = `A2:CA${range.rowCount}`; // Clear from A to CA (79 columns)
+        // Use the actual column count from the range, or default to a reasonable number
+        const numColumns = range.columnCount || 79; // Default to 79 if not available
+        
+        // Convert column number to Excel column letter
+        const getColumnLetter = (colNum) => {
+          let result = '';
+          while (colNum > 0) {
+            colNum--;
+            result = String.fromCharCode(65 + (colNum % 26)) + result;
+            colNum = Math.floor(colNum / 26);
+          }
+          return result;
+        };
+
+        const endColumn = getColumnLetter(numColumns);
+        const clearRange = `A2:${endColumn}${range.rowCount}`;
         await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${clearRange}')/clear`);
         logger.info(`Cleared ${range.rowCount - 1} rows of data from range ${clearRange}`);
       }
@@ -146,92 +183,102 @@ class ExcelService {
   formatRecordsForExcel(records) {
     this._initialize(); // Ensure service is initialized
     
-    // The records coming in are already formatted by ShedSuite service
-    // We just need to convert them to array format for Excel
+    if (!records || records.length === 0) {
+      logger.warn('No records to format for Excel');
+      return [];
+    }
+
+    // Log the first record to see what fields are available
+    const sampleRecord = records[0];
+    logger.info('Sample record fields for Excel formatting:', {
+      availableFields: Object.keys(sampleRecord),
+      fieldCount: Object.keys(sampleRecord).length
+    });
+
+    // Convert the formatted record object to an array
+    // Only include fields that actually exist in the ShedSuite formatted records
     return records.map(record => {
-      // Convert the formatted record object to an array
-      // The order should match the headers in the Excel sheet
       return [
-        record.id,
-        record.order_number,
-        record.customer_name,
-        record.status,
-        record.date_ordered,
-        record.date_updated || record.timestamp,
-        record.building_model_name,
-        record.building_size,
-        record.total_amount_dollar_amount,
-        record.balance_dollar_amount,
-        record.customer_email,
-        record.customer_phone_primary,
-        record.delivery_address_line_one,
-        record.delivery_address_line_two,
-        record.delivery_city,
-        record.delivery_state,
-        record.delivery_zip,
-        record.billing_address_line_one,
-        record.billing_address_line_two,
-        record.billing_city,
-        record.billing_state,
-        record.billing_zip,
-        record.customer_first_name,
-        record.customer_last_name,
-        record.customer_id,
-        record.customer_source,
-        record.building_length,
-        record.building_width,
-        record.building_roof_type,
-        record.building_roof_color,
-        record.building_siding_type,
-        record.building_siding_color,
-        record.building_condition,
-        record.building_addons,
-        record.building_custom_addons,
-        record.company_id,
-        record.dealer_id,
-        record.dealer_primary_sales_rep,
-        record.sold_by_dealer,
-        record.sold_by_dealer_id,
-        record.sold_by_dealer_user,
-        record.shop_name,
-        record.driver_name,
-        record.serial_number,
-        record.order_type,
-        record.rto,
-        record.rto_company_name,
-        record.rto_months_of_term,
-        record.initial_payment_dollar_amount,
-        record.initial_payment_type,
-        record.invoice_url,
-        record.date_delivered,
-        record.date_cancelled,
-        record.date_finished,
-        record.date_processed,
-        record.date_scheduled_for_delivery,
-        record.promocode_code,
-        record.promocode_name,
-        record.promocode_amount_discounted,
-        record.promocode_type,
-        record.promocode_value,
-        record.promocode_target,
-        record.sub_total_dollar_amount,
-        record.sub_total_adjustment_dollar_amount,
-        record.sub_total_adjustment_note,
-        record.total_tax_dollar_amount,
-        record.state_tax_dollar_amount,
-        record.state_tax_rate,
-        record.tax_city,
-        record.tax_city_dollar_amount,
-        record.tax_city_rate,
-        record.tax_county,
-        record.tax_county_dollar_amount,
-        record.tax_county_rate,
-        record.county_tax_rate,
-        record.special_district,
-        record.special_district_rate,
-        record.special_district_tax_dollar_amount,
-        record.state,
-        record.timestamp
+        record.id || '',
+        record.order_number || '',
+        record.customer_name || '',
+        record.status || '',
+        record.date_ordered || '',
+        record.date_updated || record.timestamp || '',
+        record.building_model_name || '',
+        record.building_size || '',
+        record.total_amount_dollar_amount || '',
+        record.balance_dollar_amount || '',
+        record.customer_email || '',
+        record.customer_phone_primary || '',
+        record.delivery_address_line_one || '',
+        record.delivery_address_line_two || '',
+        record.delivery_city || '',
+        record.delivery_state || '',
+        record.delivery_zip || '',
+        record.billing_address_line_one || '',
+        record.billing_address_line_two || '',
+        record.billing_city || '',
+        record.billing_state || '',
+        record.billing_zip || '',
+        record.customer_first_name || '',
+        record.customer_last_name || '',
+        record.customer_id || '',
+        record.customer_source || '',
+        record.building_length || '',
+        record.building_width || '',
+        record.building_roof_type || '',
+        record.building_roof_color || '',
+        record.building_siding_type || '',
+        record.building_siding_color || '',
+        record.building_condition || '',
+        record.building_addons || '',
+        record.building_custom_addons || '',
+        record.company_id || '',
+        record.dealer_id || '',
+        record.dealer_primary_sales_rep || '',
+        record.sold_by_dealer || '',
+        record.sold_by_dealer_id || '',
+        record.sold_by_dealer_user || '',
+        record.shop_name || '',
+        record.driver_name || '',
+        record.serial_number || '',
+        record.order_type || '',
+        record.rto || '',
+        record.rto_company_name || '',
+        record.rto_months_of_term || '',
+        record.initial_payment_dollar_amount || '',
+        record.initial_payment_type || '',
+        record.invoice_url || '',
+        record.date_delivered || '',
+        record.date_cancelled || '',
+        record.date_finished || '',
+        record.date_processed || '',
+        record.date_scheduled_for_delivery || '',
+        record.promocode_code || '',
+        record.promocode_name || '',
+        record.promocode_amount_discounted || '',
+        record.promocode_type || '',
+        record.promocode_value || '',
+        record.promocode_target || '',
+        record.sub_total_dollar_amount || '',
+        record.sub_total_adjustment_dollar_amount || '',
+        record.sub_total_adjustment_note || '',
+        record.total_tax_dollar_amount || '',
+        record.state_tax_dollar_amount || '',
+        record.state_tax_rate || '',
+        record.tax_city || '',
+        record.tax_city_dollar_amount || '',
+        record.tax_city_rate || '',
+        record.tax_county || '',
+        record.tax_county_dollar_amount || '',
+        record.tax_county_rate || '',
+        record.county_tax_rate || '',
+        record.special_district || '',
+        record.special_district_rate || '',
+        record.special_district_tax_dollar_amount || '',
+        record.state || '',
+        record.timestamp || ''
       ];
     });
   }
