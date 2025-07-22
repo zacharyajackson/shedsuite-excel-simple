@@ -218,7 +218,7 @@ class ProgressDashboard {
    * @param {string} operationId Operation ID
    * @param {string} level Log level
    * @param {string} message Log message
-   * @param {Object} data Additional log data
+   * @param {Object} data Additional data
    */
   addLog(operationId, level, message, data = {}) {
     const operation = this.operations[operationId];
@@ -228,21 +228,33 @@ class ProgressDashboard {
     }
     
     const logEntry = {
-      timestamp: Date.now(),
-      level,
+      timestamp: new Date().toISOString(),
+      level: level || 'info',
       message,
       data
     };
     
     operation.logs.push(logEntry);
     
-    // Trim logs if too many
+    // Keep logs manageable
     if (operation.logs.length > 100) {
       operation.logs = operation.logs.slice(-100);
     }
     
-    // Also log to system logger
-    logger[level](`[Operation ${operationId}] ${message}`, data);
+    // Also log to system logger - safely handle log levels
+    const validLevels = ['error', 'warn', 'info', 'debug', 'verbose'];
+    const safeLevel = validLevels.includes(level) ? level : 'info';
+    
+    try {
+      if (logger[safeLevel] && typeof logger[safeLevel] === 'function') {
+        logger[safeLevel](`[Operation ${operationId}] ${message}`, data);
+      } else {
+        logger.info(`[Operation ${operationId}] ${message}`, data);
+      }
+    } catch (error) {
+      // Fallback to info level if there's any issue
+      logger.info(`[Operation ${operationId}] ${message}`, data);
+    }
   }
 
   /**

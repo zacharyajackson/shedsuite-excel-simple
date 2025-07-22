@@ -115,6 +115,34 @@ class ExcelService {
   }
 
   /**
+   * Apply targeted updates to specific records in Excel
+   * @param {Array} updates - Array of records to update
+   * @returns {Promise<boolean>} Success status
+   */
+  async applyTargetedUpdates(updates) {
+    this._initialize(); // Ensure service is initialized
+    try {
+      logger.info(`Applying ${updates.length} targeted updates to Excel spreadsheet ${this.workbookId}`);
+
+      if (!updates || updates.length === 0) {
+        logger.info('No updates to apply');
+        return true;
+      }
+
+      // For targeted updates, we'll use the existing updateSpreadsheet method
+      // This is a simplified approach - in a more sophisticated implementation,
+      // you might want to update specific rows based on record IDs
+      await this.updateSpreadsheet(updates);
+
+      logger.info(`Successfully applied ${updates.length} targeted updates to Excel`);
+      return true;
+    } catch (error) {
+      logger.error('Error applying targeted updates to Excel:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Perform a health check on the Excel service
    * @returns {Promise<Object>} Health check result
    */
