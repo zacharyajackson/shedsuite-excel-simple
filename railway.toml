@@ -1,0 +1,37 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+
+[deploy.env]
+NODE_ENV = "production"
+LOG_LEVEL = "info"
+LOG_FORMAT = "json"
+ENABLE_PROGRESS_STATE = "true"
+ENABLE_AUTO_RECOVERY = "true"
+ENABLE_ADAPTIVE_BATCH_SIZING = "true"
+ENABLE_ROW_POSITION_VALIDATION = "true"
+ENABLE_DATA_VALIDATION = "true"
+GRACEFUL_SHUTDOWN_TIMEOUT = "30000"
+API_MAX_RETRIES = "5"
+API_CIRCUIT_BREAKER_THRESHOLD = "5"
+AZURE_TOKEN_REFRESH_THRESHOLD = "0.9"
+MAX_MEMORY_PERCENTAGE = "80"
+MAX_CPU_PERCENTAGE = "90"
+DISK_SPACE_THRESHOLD_MB = "100"
+
+[[services]]
+name = "shedsuite-excel-api"
+numReplicas = 1
+memoryLimit = "512MB"
+cpuLimit = "0.5"
+
+[services.healthcheck]
+path = "/health"
+interval = 30
+timeout = 15
+graceInterval = 300
