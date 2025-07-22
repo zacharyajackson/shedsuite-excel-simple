@@ -3,11 +3,27 @@
  */
 const { logger } = require('../utils/logger');
 const cron = require('node-cron');
-const shedsuite = require('./shedsuite');
-const excel = require('./excel');
+// Lazy load services to avoid immediate instantiation
+let shedsuite = null;
+let excel = null;
 const systemMonitor = require('../utils/system-monitor');
 const notificationSystem = require('../utils/notification-system');
 const progressDashboard = require('../utils/progress-dashboard');
+
+// Helper function to get services when needed
+const getShedSuite = () => {
+  if (!shedsuite) {
+    shedsuite = require('./shedsuite');
+  }
+  return shedsuite;
+};
+
+const getExcel = () => {
+  if (!excel) {
+    excel = require('./excel');
+  }
+  return excel;
+};
 
 class EnhancedMonitoringService {
   constructor() {
@@ -261,7 +277,7 @@ class EnhancedMonitoringService {
       // Check ShedSuite API
       let shedsiteHealth;
       try {
-        shedsiteHealth = await shedsuite.healthCheck();
+        shedsiteHealth = await getShedSuite().healthCheck();
         this.healthStatus.components.shedsuite = shedsiteHealth.status;
       } catch (error) {
         logger.error(`[${healthCheckId}] ShedSuite API health check failed:`, error);
@@ -272,7 +288,7 @@ class EnhancedMonitoringService {
       // Check Excel API
       let excelHealth;
       try {
-        excelHealth = await excel.healthCheck();
+        excelHealth = await getExcel().healthCheck();
         this.healthStatus.components.excel = excelHealth.status;
       } catch (error) {
         logger.error(`[${healthCheckId}] Excel API health check failed:`, error);
@@ -494,7 +510,7 @@ class EnhancedMonitoringService {
       const fetchStep = progressDashboard.addStep(operationId, 'Fetch Records');
       progressDashboard.addLog(operationId, 'info', 'Fetching records from ShedSuite API');
       
-      const records = await shedsuite.fetchAllRecords(options.filters || {});
+      const records = await getShedSuite().fetchAllRecords(options.filters || {});
       logger.info(`[Sync ${syncId}] Retrieved ${records.length} records from ShedSuite API`);
       
       progressDashboard.updateProgress(operationId, 30, {
@@ -510,7 +526,7 @@ class EnhancedMonitoringService {
       const formatStep = progressDashboard.addStep(operationId, 'Format Records');
       progressDashboard.addLog(operationId, 'info', `Formatting ${records.length} records for Excel export`);
       
-      const formattedRecords = shedsuite.formatRecordsForExport(records);
+      const formattedRecords = getShedSuite().formatRecordsForExport(records);
       logger.info(`[Sync ${syncId}] Formatted ${formattedRecords.length} records for Excel export`);
       
       progressDashboard.updateProgress(operationId, 50, {
@@ -526,7 +542,7 @@ class EnhancedMonitoringService {
       progressDashboard.addLog(operationId, 'info', `Updating Excel spreadsheet with ${formattedRecords.length} records`);
       
       logger.info(`[Sync ${syncId}] Updating Excel spreadsheet...`);
-      await excel.updateSpreadsheet(formattedRecords);
+      await getExcel().updateSpreadsheet(formattedRecords);
       
       progressDashboard.updateProgress(operationId, 100, {
         processedItems: formattedRecords.length,
@@ -662,7 +678,7 @@ class EnhancedMonitoringService {
       // Fetch only updated records
       const fetchStep = progressDashboard.addStep(operationId, 'Fetch Updated Records');
       
-      const updatedRecords = await shedsuite.fetchAllRecords({
+      const updatedRecords = await getShedSuite().fetchAllRecords({
         updatedAfter: this.lastCheckTimestamp,
         pageSize: 100 // Smaller page size for incremental updates
       });
@@ -694,7 +710,7 @@ class EnhancedMonitoringService {
 
       // Format the updated records
       const formatStep = progressDashboard.addStep(operationId, 'Format Records');
-      const formattedUpdates = shedsuite.formatRecordsForExport(updatedRecords);
+      const formattedUpdates = getShedSuite().formatRecordsForExport(updatedRecords);
       
       progressDashboard.updateStep(operationId, formatStep, 'completed', {
         recordCount: formattedUpdates.length
@@ -794,7 +810,7 @@ class EnhancedMonitoringService {
       progressDashboard.addLog(operationId, 'info', `Applying ${updates.length} targeted updates to Excel`);
 
       // Use Excel service's optimized targeted update method
-      await excel.applyTargetedUpdates(updates);
+      await getExcel().applyTargetedUpdates(updates);
 
       logger.info(`[Update ${updateId}] Targeted updates applied successfully`);
       progressDashboard.addLog(operationId, 'info', 'Targeted updates applied successfully');
@@ -822,7 +838,7 @@ class EnhancedMonitoringService {
         const fallbackStep = progressDashboard.addStep(operationId, 'Fallback Update');
         
         try {
-          await excel.updateSpreadsheet(updates);
+          await getExcel().updateSpreadsheet(updates);
           logger.info(`[Update ${updateId}] Fallback update completed`);
           progressDashboard.addLog(operationId, 'info', 'Fallback update completed successfully');
           progressDashboard.updateStep(operationId, fallbackStep, 'completed');

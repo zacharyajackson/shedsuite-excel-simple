@@ -1,8 +1,31 @@
 const express = require('express');
 const { logger } = require('../utils/logger');
-const shedsuite = require('../services/shedsuite');
-const excel = require('../services/excel');
-const monitoringService = require('../services/monitor');
+// Lazy load services to avoid immediate instantiation
+let shedsuite = null;
+let excel = null;
+let monitoringService = null;
+
+// Helper function to get services when needed
+const getShedSuite = () => {
+  if (!shedsuite) {
+    shedsuite = require('../services/shedsuite');
+  }
+  return shedsuite;
+};
+
+const getExcel = () => {
+  if (!excel) {
+    excel = require('../services/excel');
+  }
+  return excel;
+};
+
+const getMonitoringService = () => {
+  if (!monitoringService) {
+    monitoringService = require('../services/monitor');
+  }
+  return monitoringService;
+};
 
 const router = express.Router();
 
@@ -78,15 +101,15 @@ router.get('/orders', validatePagination, async (req, res) => {
 
     logger.info('Starting export with filters:', { filters, ip: req.ip });
 
-    const records = await shedsuite.fetchAllRecords(filters);
-    const formattedRecords = shedsuite.formatRecordsForExport(records);
+    const records = await getShedSuite().fetchAllRecords(filters);
+    const formattedRecords = getShedSuite().formatRecordsForExport(records);
 
     let excelSyncStatus = 'not_requested';
 
     // Update Excel spreadsheet if sync is requested
     if (req.query.sync === 'true') {
       try {
-        await excel.updateSpreadsheet(formattedRecords);
+        await getExcel().updateSpreadsheet(formattedRecords);
         excelSyncStatus = 'completed';
         logger.info('Excel spreadsheet updated successfully');
       } catch (excelError) {
@@ -126,7 +149,7 @@ router.get('/orders', validatePagination, async (req, res) => {
 // GET /api/export/orders/count - Get total record count
 router.get('/orders/count', async (req, res) => {
   try {
-    const count = await shedsuite.getTotalRecordCount();
+    const count = await getShedSuite().getTotalRecordCount();
 
     res.json({
       success: true,
@@ -154,11 +177,11 @@ router.post('/sync', expensiveOperationLimiter, async (req, res) => {
     const filters = req.body.filters || {};
 
     // Fetch latest records
-    const records = await shedsuite.fetchAllRecords(filters);
-    const formattedRecords = shedsuite.formatRecordsForExport(records);
+    const records = await getShedSuite().fetchAllRecords(filters);
+    const formattedRecords = getShedSuite().formatRecordsForExport(records);
 
     // Update Excel
-    await excel.updateSpreadsheet(formattedRecords);
+    await getExcel().updateSpreadsheet(formattedRecords);
 
     const duration = Date.now() - startTime;
     logger.info(`Manual sync completed in ${duration}ms`);
@@ -200,12 +223,12 @@ router.post('/monitor/start', async (req, res) => {
       }
     });
 
-    await monitoringService.start(options);
+    await getMonitoringService().start(options);
 
     res.json({
       success: true,
       message: 'Monitoring service started successfully',
-      config: monitoringService.getStatus().config
+      config: getMonitoringService().getStatus().config
     });
   } catch (error) {
     logger.error('Error starting monitoring service:', error);
@@ -220,7 +243,7 @@ router.post('/monitor/start', async (req, res) => {
 // POST /api/export/monitor/stop - Stop monitoring service
 router.post('/monitor/stop', (req, res) => {
   try {
-    monitoringService.stop();
+    getMonitoringService().stop();
 
     res.json({
       success: true,
@@ -239,7 +262,7 @@ router.post('/monitor/stop', (req, res) => {
 // GET /api/export/monitor/status - Get monitoring service status
 router.get('/monitor/status', (req, res) => {
   try {
-    const status = monitoringService.getStatus();
+    const status = getMonitoringService().getStatus();
 
     res.json({
       success: true,
@@ -300,9 +323,9 @@ router.post('/monitor/force-sync', expensiveOperationLimiter, async (req, res) =
 
   try {
     if (req.body.fullSync === true) {
-      await monitoringService.forceFullSync(req.body.options || {});
+      await getMonitoringService().forceFullSync(req.body.options || {});
     } else {
-      await monitoringService.forceSyncCheck();
+      await getMonitoringService().forceSyncCheck();
     }
 
     const duration = Date.now() - startTime;
@@ -330,8 +353,8 @@ router.post('/monitor/force-sync', expensiveOperationLimiter, async (req, res) =
 router.get('/health', async (req, res) => {
   try {
     const [shedsiteHealth, excelHealth] = await Promise.allSettled([
-      shedsuite.healthCheck(),
-      excel.healthCheck()
+      getShedSuite().healthCheck(),
+      getExcel().healthCheck()
     ]);
 
     const overallHealth = {
@@ -350,7 +373,7 @@ router.get('/health', async (req, res) => {
             status: 'unhealthy',
             error: excelHealth.reason?.message
           },
-        monitoring: monitoringService.getStatus()
+        monitoring: getMonitoringService().getStatus()
       }
     };
 
