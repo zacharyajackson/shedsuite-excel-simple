@@ -234,7 +234,7 @@ async function startServices() {
     logger.info('Application is now initialized and ready to serve requests');
 
     // Perform initial full sync in the background (non-blocking)
-    console.log('🔄 Starting initial full sync in background (will run in 5 seconds)...');
+    console.log('🔄 Starting initial full sync in background...');
     logger.info('Starting initial full sync in background...');
     setTimeout(async () => {
       try {
@@ -255,7 +255,14 @@ async function startServices() {
         const startTime = Date.now();
         console.log('📥 Fetching all records from ShedSuite API...');
         logger.info('Fetching all records from ShedSuite API...');
-        const records = await shedsuite.fetchAllRecords({});
+        
+        // Use a reasonable limit for initial sync to prevent it from taking too long
+        const initialSyncLimit = parseInt(process.env.INITIAL_SYNC_LIMIT) || 200000; // Default to 200k for production
+        const records = await shedsuite.fetchAllRecords({ 
+          maxRecords: initialSyncLimit,
+          pageSize: 1000, // Use larger page size for faster initial sync
+          retryDelay: 50 // Reduce delay for faster processing
+        });
 
         console.log(`📊 Formatting ${records.length} records for Excel...`);
         logger.info(`Formatting ${records.length} records for Excel...`);

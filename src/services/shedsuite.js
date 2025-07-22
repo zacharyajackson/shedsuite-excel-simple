@@ -271,12 +271,29 @@ class ShedSuiteService {
       const pageSize = filters.pageSize || this.config.pageSize;
       let consecutiveEmptyPages = 0;
       const maxEmptyPages = parseInt(process.env.MAX_CONSECUTIVE_EMPTY_PAGES) || 5;
+      
+      // Get total count for progress tracking
+      let totalExpectedRecords = null;
+      try {
+        totalExpectedRecords = await this.getTotalRecordCount();
+        console.log(`📊 Expected total records: ${totalExpectedRecords}`);
+      } catch (error) {
+        console.log('⚠️  Could not get total record count for progress tracking');
+      }
 
       console.log(`📄 Will fetch up to ${this.config.maxPages} pages with ${pageSize} records per page`);
 
       while (hasMoreData && page <= this.config.maxPages) {
         const pageUrl = this.buildApiUrl(page, filters);
-        console.log(`📥 Fetching page ${page}... (${allRecords.length} records so far)`);
+        
+        // Show progress percentage if we have total count
+        let progressInfo = `(${allRecords.length} records so far)`;
+        if (totalExpectedRecords) {
+          const progressPercent = Math.round((allRecords.length / totalExpectedRecords) * 100);
+          progressInfo = `(${allRecords.length}/${totalExpectedRecords} records, ${progressPercent}%)`;
+        }
+        
+        console.log(`📥 Fetching page ${page}... ${progressInfo}`);
         logger.info(`Fetching page ${page}...`, {
           url: pageUrl.replace(this.config.authToken, '***'),
           offset: (page - 1) * pageSize
@@ -313,10 +330,16 @@ class ShedSuiteService {
             allRecords = allRecords.concat(pageRecords);
 
             // Check if we've reached a reasonable limit to prevent infinite loops
-            const maxRecords = parseInt(process.env.MAX_RECORDS) || 10000;
+            const maxRecords = parseInt(process.env.MAX_RECORDS) || 100000;
             if (allRecords.length >= maxRecords) {
               console.log(`🛑 Reached maximum record limit (${maxRecords}), stopping pagination`);
               logger.info(`Reached maximum record limit (${maxRecords}), stopping pagination`);
+              hasMoreData = false;
+            }
+            // Check if we've reached the expected total
+            else if (totalExpectedRecords && allRecords.length >= totalExpectedRecords) {
+              console.log(`🛑 Reached expected total records (${totalExpectedRecords}), stopping pagination`);
+              logger.info(`Reached expected total records (${totalExpectedRecords}), stopping pagination`);
               hasMoreData = false;
             }
             // More forgiving stopping condition to handle date parsing issues
@@ -355,8 +378,9 @@ class ShedSuiteService {
 
         // Add a small delay between requests to avoid overwhelming the API
         if (hasMoreData && page <= this.config.maxPages) {
-          console.log(`⏳ Waiting 100ms before next request...`);
-          await new Promise(resolve => setTimeout(resolve, 100));
+          const delay = filters.retryDelay || 100; // Use configurable delay or default to 100ms
+          console.log(`⏳ Waiting ${delay}ms before next request...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
 
