@@ -236,60 +236,68 @@ async function startServices() {
     // Perform initial full sync in the background (non-blocking)
     console.log('🔄 Starting initial full sync in background...');
     logger.info('Starting initial full sync in background...');
-    setTimeout(async () => {
-      try {
-        console.log('🔄 Beginning initial full sync...');
-        // Register this operation with the graceful shutdown handler
-        const syncOperationId = 'initial-full-sync-' + Date.now();
-        const unregisterSync = gracefulShutdown.registerOperation(syncOperationId, {
-          type: 'sync',
-          name: 'Initial Full Sync',
-          startTime: new Date()
-        }, async () => {
-          // Cleanup function that will be called during shutdown
-          logger.info('Cleaning up initial sync operation during shutdown');
-          // No specific cleanup needed for read-only operation
-          return Promise.resolve();
-        });
+    
+    // Skip initial sync if disabled for testing
+    if (process.env.SKIP_INITIAL_SYNC === 'true') {
+      console.log('⏭️  Initial sync disabled for testing');
+      logger.info('Initial sync disabled for testing');
+    } else {
+      setTimeout(async () => {
+        try {
+          console.log('🔄 Beginning initial full sync...');
+          // Register this operation with the graceful shutdown handler
+          const syncOperationId = 'initial-full-sync-' + Date.now();
+          const unregisterSync = gracefulShutdown.registerOperation(syncOperationId, {
+            type: 'sync',
+            name: 'Initial Full Sync',
+            startTime: new Date()
+          }, async () => {
+            // Cleanup function that will be called during shutdown
+            logger.info('Cleaning up initial sync operation during shutdown');
+            // No specific cleanup needed for read-only operation
+            return Promise.resolve();
+          });
 
-        const startTime = Date.now();
-        console.log('📥 Fetching all records from ShedSuite API...');
-        logger.info('Fetching all records from ShedSuite API...');
-        
-        // Use a reasonable limit for initial sync to prevent it from taking too long
-        const initialSyncLimit = parseInt(process.env.INITIAL_SYNC_LIMIT) || 200000; // Default to 200k for production
-        const records = await shedsuite.fetchAllRecords({ 
-          maxRecords: initialSyncLimit,
-          pageSize: 1000, // Use larger page size for faster initial sync
-          retryDelay: 50 // Reduce delay for faster processing
-        });
+          const startTime = Date.now();
+          console.log('📥 Fetching all records from ShedSuite API...');
+          logger.info('Fetching all records from ShedSuite API...');
+          
+          // Use a reasonable limit for initial sync to prevent it from taking too long
+          const initialSyncLimit = parseInt(process.env.INITIAL_SYNC_LIMIT) || 200000; // Default to 200k for production
+          console.log(`📊 Initial sync limit set to ${initialSyncLimit} records`);
+          const records = await shedsuite.fetchAllRecords({ 
+            maxRecords: initialSyncLimit,
+            pageSize: 1000, // Use larger page size for faster initial sync
+            retryDelay: 50 // Reduce delay for faster processing
+          });
 
-        console.log(`📊 Formatting ${records.length} records for Excel...`);
-        logger.info(`Formatting ${records.length} records for Excel...`);
-        const formattedRecords = shedsuite.formatRecordsForExport(records);
+          console.log(`📊 Formatting ${records.length} records for Excel...`);
+          logger.info(`Formatting ${records.length} records for Excel...`);
+          const formattedRecords = shedsuite.formatRecordsForExport(records);
 
-        console.log(`📈 Updating Excel spreadsheet with ${formattedRecords.length} records...`);
-        logger.info(`Updating Excel spreadsheet with ${formattedRecords.length} records...`);
-        await excel.updateSpreadsheet(formattedRecords);
+          console.log(`📈 Updating Excel spreadsheet with ${formattedRecords.length} records...`);
+          logger.info(`Updating Excel spreadsheet with ${formattedRecords.length} records...`);
+          await excel.updateSpreadsheet(formattedRecords);
 
-        const duration = Date.now() - startTime;
-        console.log(`✅ Initial full sync completed successfully: ${formattedRecords.length} records in ${duration}ms`);
-        logger.info('Initial full sync completed successfully:', {
-          recordsCount: formattedRecords.length,
-          duration: `${duration}ms`,
-          timestamp: new Date().toISOString()
-        });
-        
-        // Unregister the operation since it completed successfully
-        unregisterSync();
-      } catch (error) {
-        console.error(`❌ Initial full sync failed: ${error.message}`);
-        logger.error('Initial full sync failed:', error);
-        // Don't throw here - allow the service to start even if initial sync fails
-        console.log('⚠️  Service will continue without initial sync data');
-        logger.warn('Service will continue without initial sync data');
-      }
-    }, 5000); // 5 second delay to let the server start first
+          const duration = Date.now() - startTime;
+          console.log(`✅ Initial full sync completed successfully: ${formattedRecords.length} records in ${duration}ms`);
+          logger.info('Initial full sync completed successfully:', {
+            recordsCount: formattedRecords.length,
+            duration: `${duration}ms`,
+            timestamp: new Date().toISOString()
+          });
+          
+          // Unregister the operation since it completed successfully
+          unregisterSync();
+        } catch (error) {
+          console.error(`❌ Initial full sync failed: ${error.message}`);
+          logger.error('Initial full sync failed:', error);
+          // Don't throw here - allow the service to start even if initial sync fails
+          console.log('⚠️  Service will continue without initial sync data');
+          logger.warn('Service will continue without initial sync data');
+        }
+      }, 5000); // 5 second delay to let the server start first
+    }
 
     // Start monitoring services if enabled - DELAYED to ensure environment variables are loaded
     if (process.env.ENABLE_MONITORING !== 'false') {
