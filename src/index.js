@@ -260,63 +260,78 @@ async function startServices() {
       logger.warn('Service will continue without initial sync data');
     }
 
-    // Start monitoring services if enabled
+    // Start monitoring services if enabled - DELAYED to ensure environment variables are loaded
     if (process.env.ENABLE_MONITORING !== 'false') {
-      logger.info('Starting monitoring services...');
+      logger.info('Monitoring services will be started after a delay to ensure proper initialization...');
       
-      // Start enhanced monitoring service with graceful shutdown support
-      await enhancedMonitor.start({
-        pollingIntervalMs: parseInt(process.env.POLLING_INTERVAL) || 300000,
-        cronSchedule: process.env.CRON_SCHEDULE,
-        fullSyncInterval: parseInt(process.env.FULL_SYNC_INTERVAL) || 24,
-        enablePerformanceLogging: process.env.ENABLE_PERFORMANCE_LOGGING !== 'false',
-        healthCheckIntervalMs: parseInt(process.env.HEALTH_CHECK_INTERVAL_MS) || 300000,
-        metricsExportIntervalMs: parseInt(process.env.METRICS_EXPORT_INTERVAL_MS) || 60000
-      });
-      
-      // Register the monitoring service with the graceful shutdown handler
-      gracefulShutdown.registerOperation('enhanced-monitor', {
-        type: 'service',
-        name: 'Enhanced Monitoring Service',
-        startTime: new Date()
-      }, async () => {
-        logger.info('Stopping enhanced monitoring service during shutdown');
-        return enhancedMonitor.stop();
-      });
-      
-      logger.info('Enhanced monitoring service started successfully');
-      
-      // Start legacy monitoring service for backward compatibility if needed
-      if (process.env.ENABLE_LEGACY_MONITORING === 'true') {
-        monitoringService.start({
-          pollingIntervalMs: parseInt(process.env.POLLING_INTERVAL) || 300000,
-          cronSchedule: process.env.CRON_SCHEDULE,
-          fullSyncInterval: parseInt(process.env.FULL_SYNC_INTERVAL) || 24,
-          enablePerformanceLogging: process.env.ENABLE_PERFORMANCE_LOGGING !== 'false'
-        });
-        
-        // Register the legacy monitoring service with the graceful shutdown handler
-        gracefulShutdown.registerOperation('legacy-monitor', {
-          type: 'service',
-          name: 'Legacy Monitoring Service',
-          startTime: new Date()
-        }, async () => {
-          logger.info('Stopping legacy monitoring service during shutdown');
-          return monitoringService.stop();
-        });
-        
-        logger.info('Legacy monitoring service started for backward compatibility');
-      }
-      
-      // Register system monitor with graceful shutdown handler
-      gracefulShutdown.registerOperation('system-monitor', {
-        type: 'service',
-        name: 'System Monitor',
-        startTime: new Date()
-      }, async () => {
-        logger.info('Stopping system monitor during shutdown');
-        return systemMonitor.stop();
-      });
+      // Delay monitoring service startup to ensure environment variables are loaded
+      setTimeout(async () => {
+        try {
+          logger.info('Starting monitoring services after delay...');
+          
+          // Check if basic environment variables are available before starting monitoring
+          if (!process.env.API_BASE_URL || !process.env.API_TOKEN) {
+            logger.warn('Basic environment variables not available, skipping monitoring service startup');
+            return;
+          }
+          
+          // Start enhanced monitoring service with graceful shutdown support
+          await enhancedMonitor.start({
+            pollingIntervalMs: parseInt(process.env.POLLING_INTERVAL) || 300000,
+            cronSchedule: process.env.CRON_SCHEDULE,
+            fullSyncInterval: parseInt(process.env.FULL_SYNC_INTERVAL) || 24,
+            enablePerformanceLogging: process.env.ENABLE_PERFORMANCE_LOGGING !== 'false',
+            healthCheckIntervalMs: parseInt(process.env.HEALTH_CHECK_INTERVAL_MS) || 300000,
+            metricsExportIntervalMs: parseInt(process.env.METRICS_EXPORT_INTERVAL_MS) || 60000
+          });
+          
+          // Register the monitoring service with the graceful shutdown handler
+          gracefulShutdown.registerOperation('enhanced-monitor', {
+            type: 'service',
+            name: 'Enhanced Monitoring Service',
+            startTime: new Date()
+          }, async () => {
+            logger.info('Stopping enhanced monitoring service during shutdown');
+            return enhancedMonitor.stop();
+          });
+          
+          logger.info('Enhanced monitoring service started successfully');
+          
+          // Start legacy monitoring service for backward compatibility if needed
+          if (process.env.ENABLE_LEGACY_MONITORING === 'true') {
+            monitoringService.start({
+              pollingIntervalMs: parseInt(process.env.POLLING_INTERVAL) || 300000,
+              cronSchedule: process.env.CRON_SCHEDULE,
+              fullSyncInterval: parseInt(process.env.FULL_SYNC_INTERVAL) || 24,
+              enablePerformanceLogging: process.env.ENABLE_PERFORMANCE_LOGGING !== 'false'
+            });
+            
+            // Register the legacy monitoring service with the graceful shutdown handler
+            gracefulShutdown.registerOperation('legacy-monitor', {
+              type: 'service',
+              name: 'Legacy Monitoring Service',
+              startTime: new Date()
+            }, async () => {
+              logger.info('Stopping legacy monitoring service during shutdown');
+              return monitoringService.stop();
+            });
+            
+            logger.info('Legacy monitoring service started for backward compatibility');
+          }
+          
+          // Register system monitor with graceful shutdown handler
+          gracefulShutdown.registerOperation('system-monitor', {
+            type: 'service',
+            name: 'System Monitor',
+            startTime: new Date()
+          }, async () => {
+            logger.info('Stopping system monitor during shutdown');
+            return systemMonitor.stop();
+          });
+        } catch (error) {
+          logger.error('Failed to start monitoring services after delay:', error);
+        }
+      }, 10000); // 10 second delay
     } else {
       logger.info('Monitoring services are disabled');
     }

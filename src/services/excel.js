@@ -17,6 +17,16 @@ class ExcelService {
       return;
     }
 
+    // Validate required environment variables with more graceful handling
+    if (!process.env.AZURE_CLIENT_ID) {
+      logger.warn('AZURE_CLIENT_ID is not available yet, Excel service will be unavailable');
+      throw new Error('AZURE_CLIENT_ID is required');
+    }
+    if (!process.env.AZURE_TENANT_ID) {
+      logger.warn('AZURE_TENANT_ID is not available yet, Excel service will be unavailable');
+      throw new Error('AZURE_TENANT_ID is required');
+    }
+
     // Initialize MSAL
     this.msalClient = new PublicClientApplication({
       auth: {

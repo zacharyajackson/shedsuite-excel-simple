@@ -15,11 +15,13 @@ class ShedSuiteService {
       return;
     }
 
-    // Validate required environment variables
+    // Validate required environment variables with more graceful handling
     if (!process.env.API_BASE_URL) {
+      logger.warn('API_BASE_URL is not available yet, service will be unavailable');
       throw new Error('API_BASE_URL is required');
     }
     if (!process.env.API_TOKEN) {
+      logger.warn('API_TOKEN is not available yet, service will be unavailable');
       throw new Error('API_TOKEN is required');
     }
 
