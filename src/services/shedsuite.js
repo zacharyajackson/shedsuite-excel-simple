@@ -2,6 +2,7 @@ const https = require('https');
 const { URL } = require('url');
 const { logger } = require('../utils/logger');
 const { ErrorHandler } = require('../utils/error-handler');
+const shedSuiteLog = require('../utils/shedsuite-logger');
 
 class ShedSuiteService {
   constructor() {
@@ -169,23 +170,43 @@ class ShedSuiteService {
 
   async getTotalRecordCount() {
     this._initialize(); // Ensure config and errorHandler are initialized
+    const startTime = Date.now();
+    
     try {
-      logger.debug('Getting total record count...');
+      shedSuiteLog.fetching(`Getting total record count`);
       
       // Since the API doesn't provide total count metadata, we'll make a conservative estimate
       // based on the fact that this is a production system with many records
-      logger.info('API does not provide total count metadata, using conservative estimate for production');
+      const duration = Date.now() - startTime;
+      
+      shedSuiteLog.fetching(`API does not provide total count metadata, using conservative estimate`, {
+        estimate: 100000,
+        duration: `${duration}ms`,
+        reason: 'production_system_conservative_estimate'
+      });
+      
       return 100000; // Conservative estimate for production
     } catch (error) {
-      logger.error('Error getting total record count:', error);
+      const duration = Date.now() - startTime;
+      
+      shedSuiteLog.error(`Error getting total record count`, error, {
+        duration: `${duration}ms`
+      });
+      
       // Return a conservative estimate instead of throwing
-      logger.warn('Using conservative estimate of 100k records due to error');
+      shedSuiteLog.warn(`Using conservative estimate of 100k records due to error`, {
+        estimate: 100000,
+        reason: 'error_fallback'
+      });
+      
       return 100000;
     }
   }
 
   buildApiUrl(page, filters = {}, countOnly = false) {
     this._initialize(); // Ensure config and errorHandler are initialized
+    const startTime = Date.now();
+    
     try {
       // Build the full API path
       let apiPath = this.config.endpoint;
@@ -220,10 +241,28 @@ class ShedSuiteService {
       });
 
       const finalUrl = url.toString();
-      logger.debug('Built API URL:', finalUrl.replace(this.config.authToken, '***'));
+      const duration = Date.now() - startTime;
+      
+      shedSuiteLog.http(`Built API URL`, {
+        page: page,
+        countOnly: countOnly,
+        pageSize: pageSize,
+        filters: Object.keys(filters),
+        duration: `${duration}ms`,
+        url: finalUrl.replace(this.config.authToken, '***')
+      });
+      
       return finalUrl;
     } catch (error) {
-      logger.error('Error building API URL:', error);
+      const duration = Date.now() - startTime;
+      
+      shedSuiteLog.error(`Error building API URL`, error, {
+        duration: `${duration}ms`,
+        page: page,
+        countOnly: countOnly,
+        filters: Object.keys(filters)
+      });
+      
       throw error;
     }
   }
@@ -231,8 +270,16 @@ class ShedSuiteService {
   async fetchAllRecords(filters = {}) {
     this._initialize(); // Ensure config and errorHandler are initialized
     const startTime = Date.now();
-    console.log('🔄 Starting data fetch from ShedSuite API...');
-    logger.info('Starting data fetch from ShedSuite API...', { filters });
+    
+    shedSuiteLog.fetching(`Starting data fetch from ShedSuite API`, {
+      filters: filters,
+      config: {
+        pageSize: filters.pageSize || this.config.pageSize,
+        maxPages: this.config.maxPages,
+        maxRecords: parseInt(process.env.MAX_RECORDS) || 100000
+      },
+      timestamp: new Date().toISOString()
+    });
 
     try {
       let allRecords = [];
@@ -241,56 +288,88 @@ class ShedSuiteService {
       const pageSize = filters.pageSize || this.config.pageSize;
       let consecutiveEmptyPages = 0;
       const maxEmptyPages = parseInt(process.env.MAX_CONSECUTIVE_EMPTY_PAGES) || 5;
+      let successfulPages = 0;
+      let failedPages = 0;
+      let totalRequestTime = 0;
       
       // Get total count for progress tracking
       let totalExpectedRecords = null;
       try {
+        const countStartTime = Date.now();
         totalExpectedRecords = await this.getTotalRecordCount();
-        console.log(`📊 Expected total records: ${totalExpectedRecords}`);
+        const countDuration = Date.now() - countStartTime;
+        
+        shedSuiteLog.fetching(`Total record count retrieved`, {
+          totalExpectedRecords: totalExpectedRecords,
+          countDuration: `${countDuration}ms`
+        });
       } catch (error) {
-        console.log('⚠️  Could not get total record count for progress tracking');
+        shedSuiteLog.warn(`Could not get total record count for progress tracking`, {
+          error: error.message
+        });
       }
 
-      console.log(`📄 Will fetch up to ${this.config.maxPages} pages with ${pageSize} records per page`);
+      shedSuiteLog.pagination(`Pagination configuration`, {
+        maxPages: this.config.maxPages,
+        pageSize: pageSize,
+        maxEmptyPages: maxEmptyPages
+      });
 
       while (hasMoreData && page <= this.config.maxPages) {
+        const pageStartTime = Date.now();
         const pageUrl = this.buildApiUrl(page, filters);
         
-        // Show progress information
-        let progressInfo = `(${allRecords.length} records so far)`;
-        if (totalExpectedRecords && totalExpectedRecords >= 100000) {
-          // Conservative estimate - show progress differently
-          progressInfo = `(${allRecords.length} records so far, fetching until end of data)`;
-        }
-        
-        console.log(`📥 Fetching page ${page}... ${progressInfo}`);
-        logger.info(`Fetching page ${page}...`, {
+        shedSuiteLog.fetching(`Fetching page ${page}`, {
+          pageNumber: page,
+          totalRecordsSoFar: allRecords.length,
+          expectedTotal: totalExpectedRecords,
           url: pageUrl.replace(this.config.authToken, '***'),
           offset: (page - 1) * pageSize
         });
 
         try {
-          console.log(`🔗 Making request to page ${page}...`);
+          const requestStartTime = Date.now();
           const pageData = await this.makeRequest(pageUrl);
-          console.log(`✅ Page ${page} request completed, extracting records...`);
+          const requestDuration = Date.now() - requestStartTime;
+          totalRequestTime += requestDuration;
           
+          shedSuiteLog.http(`Page ${page} request completed`, {
+            pageNumber: page,
+            requestDuration: `${requestDuration}ms`,
+            responseSize: JSON.stringify(pageData).length
+          });
+          
+          const extractStartTime = Date.now();
           const pageRecords = this.extractRecords(pageData);
+          const extractDuration = Date.now() - extractStartTime;
+          
+          const pageDuration = Date.now() - pageStartTime;
+          successfulPages++;
 
-          console.log(`📊 Page ${page} results: ${pageRecords.length} records`);
-          logger.info(`Page ${page} fetched:`, {
+          shedSuiteLog.processing(`Page ${page} records extracted`, {
+            pageNumber: page,
             recordsInPage: pageRecords.length,
             totalRecordsSoFar: allRecords.length + pageRecords.length,
-            consecutiveEmptyPages
+            extractDuration: `${extractDuration}ms`,
+            pageDuration: `${pageDuration}ms`,
+            consecutiveEmptyPages: consecutiveEmptyPages
           });
 
           if (pageRecords.length === 0) {
             consecutiveEmptyPages++;
-            console.log(`⚠️  Empty page ${page} (${consecutiveEmptyPages}/${maxEmptyPages} consecutive empty pages)`);
-            logger.info(`Empty page ${page} (${consecutiveEmptyPages}/${maxEmptyPages} consecutive empty pages)`);
+            
+            shedSuiteLog.pagination(`Empty page ${page} detected`, {
+              pageNumber: page,
+              consecutiveEmptyPages: consecutiveEmptyPages,
+              maxEmptyPages: maxEmptyPages
+            });
 
             if (consecutiveEmptyPages >= maxEmptyPages) {
-              console.log('🛑 Multiple consecutive empty pages found, stopping pagination');
-              logger.info('Multiple consecutive empty pages found, stopping pagination');
+              shedSuiteLog.pagination(`Multiple consecutive empty pages found, stopping pagination`, {
+                pageNumber: page,
+                consecutiveEmptyPages: consecutiveEmptyPages,
+                maxEmptyPages: maxEmptyPages
+              });
               hasMoreData = false;
             } else {
               page++;
@@ -302,58 +381,88 @@ class ShedSuiteService {
             // Check if we've reached a reasonable limit to prevent infinite loops
             const maxRecords = parseInt(process.env.MAX_RECORDS) || 100000;
             if (allRecords.length >= maxRecords) {
-              console.log(`🛑 Reached maximum record limit (${maxRecords}), stopping pagination`);
-              logger.info(`Reached maximum record limit (${maxRecords}), stopping pagination`);
+              shedSuiteLog.pagination(`Reached maximum record limit`, {
+                pageNumber: page,
+                currentRecords: allRecords.length,
+                maxRecords: maxRecords
+              });
               hasMoreData = false;
             }
             // Stop if we get a significantly smaller page than expected (end of data)
             else if (pageRecords.length < (pageSize * 0.5)) {
-              console.log(`🛑 Page ${page} had only ${pageRecords.length} records (less than 50% of page size ${pageSize}), likely end of data`);
-              logger.info(`Page ${page} had only ${pageRecords.length} records (less than 50% of page size ${pageSize}), likely end of data`);
+              shedSuiteLog.pagination(`Page ${page} had significantly fewer records than expected`, {
+                pageNumber: page,
+                recordsInPage: pageRecords.length,
+                pageSize: pageSize,
+                threshold: pageSize * 0.5
+              });
               hasMoreData = false;
             } else {
               // Test if there's more data by checking the next page
-              console.log(`🔍 Testing if there's more data beyond page ${page}...`);
+              shedSuiteLog.pagination(`Testing if there's more data beyond page ${page}`, {
+                pageNumber: page,
+                testPageNumber: page + 1
+              });
+              
               try {
+                const testStartTime = Date.now();
                 const testPageUrl = this.buildApiUrl(page + 1, filters);
                 const testData = await this.makeRequest(testPageUrl);
                 const testRecords = this.extractRecords(testData);
+                const testDuration = Date.now() - testStartTime;
                 
                 if (testRecords.length === 0) {
-                  console.log(`🛑 Test page ${page + 1} returned 0 records - we've reached the end of data`);
-                  logger.info(`Test page ${page + 1} returned 0 records - we've reached the end of data`);
+                  shedSuiteLog.pagination(`Test page ${page + 1} returned 0 records - end of data reached`, {
+                    pageNumber: page,
+                    testPageNumber: page + 1,
+                    testDuration: `${testDuration}ms`
+                  });
                   hasMoreData = false;
                 } else {
-                  console.log(`✅ Test page ${page + 1} returned ${testRecords.length} records - continuing...`);
-              page++;
+                  shedSuiteLog.pagination(`Test page ${page + 1} returned ${testRecords.length} records - continuing`, {
+                    pageNumber: page,
+                    testPageNumber: page + 1,
+                    testRecords: testRecords.length,
+                    testDuration: `${testDuration}ms`
+                  });
+                  page++;
                 }
               } catch (testError) {
-                console.log(`🛑 Test page ${page + 1} failed - likely end of data: ${testError.message}`);
-                logger.info(`Test page ${page + 1} failed - likely end of data:`, { error: testError.message });
+                shedSuiteLog.error(`Test page ${page + 1} failed - likely end of data`, testError, {
+                  pageNumber: page,
+                  testPageNumber: page + 1
+                });
                 hasMoreData = false;
               }
             }
           }
         } catch (pageError) {
-          console.error(`❌ Error fetching page ${page}: ${pageError.message}`);
-          logger.error(`Error fetching page ${page}:`, {
-            error: pageError.message,
-            page,
+          const pageDuration = Date.now() - pageStartTime;
+          failedPages++;
+          
+          shedSuiteLog.error(`Error fetching page ${page}`, pageError, {
+            pageNumber: page,
+            pageDuration: `${pageDuration}ms`,
             url: pageUrl.replace(this.config.authToken, '***')
           });
 
           // If it's a date-related error, try to continue
           if (pageError.message.includes('date') || pageError.message.includes('5/27') || pageError.message.includes('parsing')) {
-            console.log('⚠️  Date-related error detected, skipping to next page...');
-            logger.warn('Date-related error detected, skipping to next page...');
+            shedSuiteLog.warn(`Date-related error detected, skipping to next page`, {
+              pageNumber: page,
+              errorMessage: pageError.message
+            });
             page++;
             continue;
           }
 
           consecutiveEmptyPages++;
           if (consecutiveEmptyPages >= maxEmptyPages) {
-            console.log('🛑 Too many consecutive errors, stopping pagination');
-            logger.error('Too many consecutive errors, stopping pagination');
+            shedSuiteLog.error(`Too many consecutive errors, stopping pagination`, {
+              pageNumber: page,
+              consecutiveEmptyPages: consecutiveEmptyPages,
+              maxEmptyPages: maxEmptyPages
+            });
             break;
           }
           page++;
@@ -362,44 +471,66 @@ class ShedSuiteService {
         // Add a small delay between requests to avoid overwhelming the API
         if (hasMoreData && page <= this.config.maxPages) {
           const delay = filters.retryDelay || 100; // Use configurable delay or default to 100ms
-          console.log(`⏳ Waiting ${delay}ms before next request...`);
+          
+          shedSuiteLog.rateLimit(`Adding delay between requests`, {
+            pageNumber: page,
+            delay: delay
+          });
+          
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
 
       const duration = Date.now() - startTime;
-      console.log(`✅ Data fetch completed: ${allRecords.length} records in ${duration}ms`);
-      logger.info('Data fetch completed:', {
+      const averageRequestTime = successfulPages > 0 ? Math.round(totalRequestTime / successfulPages) : 0;
+      const recordsPerSecond = duration > 0 ? Math.round((allRecords.length / duration) * 1000) : 0;
+      
+      shedSuiteLog.performance(`Data fetch completed successfully`, {
         totalRecords: allRecords.length,
         pagesProcessed: page,
+        successfulPages: successfulPages,
+        failedPages: failedPages,
         totalDuration: `${duration}ms`,
+        totalRequestTime: `${totalRequestTime}ms`,
+        averageRequestTime: `${averageRequestTime}ms`,
         averageTimePerPage: `${Math.round(duration / page)}ms`,
-        recordsPerSecond: Math.round((allRecords.length / duration) * 1000)
+        recordsPerSecond: recordsPerSecond,
+        averageRecordsPerPage: Math.round(allRecords.length / page)
       });
 
       return allRecords;
     } catch (error) {
       const duration = Date.now() - startTime;
-      console.error(`❌ Data fetch failed after ${duration}ms: ${error.message}`);
-      logger.error('Data fetch failed:', {
-        error: error.message,
+      
+      shedSuiteLog.error(`Data fetch failed`, error, {
         duration: `${duration}ms`,
-        stack: error.stack
+        totalRecords: allRecords.length,
+        pagesProcessed: page,
+        successfulPages: successfulPages,
+        failedPages: failedPages
       });
+      
       throw error;
     }
   }
 
   extractRecords(data) {
-    console.log(`🔍 Extracting records from response...`);
-    console.log(`📊 Response type: ${typeof data}, isArray: ${Array.isArray(data)}`);
-    console.log(`📊 Response keys: ${Object.keys(data || {}).join(', ')}`);
+    const startTime = Date.now();
+    
+    shedSuiteLog.processing(`Extracting records from response`, {
+      responseType: typeof data,
+      isArray: Array.isArray(data),
+      responseKeys: Object.keys(data || {}),
+      responseSize: JSON.stringify(data).length
+    });
     
     // Handle the actual API response format we're seeing
     if (Array.isArray(data)) {
-      console.log(`✅ Processing array response with ${data.length} records`);
-      logger.info('Processing array response:', {
+      const duration = Date.now() - startTime;
+      
+      shedSuiteLog.processing(`Processing array response`, {
         recordCount: data.length,
+        duration: `${duration}ms`,
         sampleRecord: data[0]
           ? {
             id: data[0].id,
@@ -414,17 +545,32 @@ class ShedSuiteService {
 
     // Try other response formats if array format changes
     if (data.data && Array.isArray(data.data)) {
-      console.log(`✅ Processing data.data array with ${data.data.length} records`);
+      const duration = Date.now() - startTime;
+      
+      shedSuiteLog.processing(`Processing data.data array`, {
+        recordCount: data.data.length,
+        duration: `${duration}ms`
+      });
       return data.data;
     }
 
     if (data.results && Array.isArray(data.results)) {
-      console.log(`✅ Processing data.results array with ${data.results.length} records`);
+      const duration = Date.now() - startTime;
+      
+      shedSuiteLog.processing(`Processing data.results array`, {
+        recordCount: data.results.length,
+        duration: `${duration}ms`
+      });
       return data.results;
     }
 
     if (data.records && Array.isArray(data.records)) {
-      console.log(`✅ Processing data.records array with ${data.records.length} records`);
+      const duration = Date.now() - startTime;
+      
+      shedSuiteLog.processing(`Processing data.records array`, {
+        recordCount: data.records.length,
+        duration: `${duration}ms`
+      });
       return data.records;
     }
 

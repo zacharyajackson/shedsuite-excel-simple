@@ -2,6 +2,7 @@ require('isomorphic-fetch');
 const { Client } = require('@microsoft/microsoft-graph-client');
 const { ConfidentialClientApplication } = require('@azure/msal-node');
 const { logger } = require('../utils/logger');
+const excelLog = require('../utils/excel-logger');
 
 class ExcelService {
   constructor() {
@@ -74,38 +75,66 @@ class ExcelService {
    */
   async getSiteId() {
     if (this.siteId) {
+      excelLog.connection(`Using cached site ID`, { siteId: this.siteId });
       return this.siteId;
     }
 
     try {
-      logger.info('Getting SharePoint site ID...');
+      const startTime = Date.now();
+      excelLog.connection(`Getting SharePoint site ID`, {
+        hostname: this.hostname,
+        sitePath: this.sitePath
+      });
+      
       const site = await this.client.api(`/sites/${this.hostname}:${this.sitePath}`).get();
       this.siteId = site.id;
-      logger.debug(`Site ID retrieved: ${this.siteId}`);
+      
+      const duration = Date.now() - startTime;
+      excelLog.connection(`Site ID retrieved successfully`, {
+        siteId: this.siteId,
+        duration: `${duration}ms`
+      });
+      
       return this.siteId;
     } catch (error) {
-      logger.error('Failed to get SharePoint site ID:', error);
+      excelLog.error('Failed to get SharePoint site ID', error, {
+        hostname: this.hostname,
+        sitePath: this.sitePath
+      });
       throw error;
     }
   }
 
   async updateSpreadsheet(records) {
     this._initialize(); // Ensure service is initialized
+    const startTime = Date.now();
+    
     try {
-      logger.info(`Updating Excel spreadsheet ${this.workbookId} with ${records.length} records`);
+      excelLog.info(`Starting Excel spreadsheet update`, {
+        workbookId: this.workbookId,
+        recordCount: records.length,
+        timestamp: new Date().toISOString()
+      });
 
       // Get site ID
       const siteId = await this.getSiteId();
-      logger.info(`Site ID obtained: ${siteId}`);
+      excelLog.connection(`Site ID obtained successfully`, { siteId });
 
       // Format records for Excel
+      const formatStartTime = Date.now();
       const values = this.formatRecordsForExcel(records);
-      logger.info(`Formatted ${values.length} rows for Excel`);
+      const formatDuration = Date.now() - formatStartTime;
+      
+      excelLog.performance(`Records formatted for Excel`, {
+        recordCount: records.length,
+        formattedRows: values.length,
+        formatDuration: `${formatDuration}ms`
+      });
 
       // Calculate the number of columns dynamically
       const numColumns = values.length > 0 ? values[0].length : 0;
       if (numColumns === 0) {
-        logger.warn('No data to write to Excel');
+        excelLog.warn('No data to write to Excel - empty values array');
         return true;
       }
 
@@ -121,79 +150,176 @@ class ExcelService {
       };
 
       const endColumn = getColumnLetter(numColumns);
-      logger.info(`Writing ${numColumns} columns (A to ${endColumn})`);
+      excelLog.info(`Excel configuration prepared`, {
+        columns: numColumns,
+        columnRange: `A-${endColumn}`,
+        totalRows: values.length
+      });
 
       // Clear existing data in chunks to avoid payload size limits
+      const clearStartTime = Date.now();
       await this.clearExistingDataInChunks(siteId);
+      const clearDuration = Date.now() - clearStartTime;
+      
+      excelLog.performance(`Data clearing completed`, {
+        clearDuration: `${clearDuration}ms`
+      });
 
       // Update with new data in much smaller batches to avoid payload size limits
       const batchSize = 10; // Very small batches to avoid payload limits
-      logger.info(`Processing ${values.length} rows in batches of ${batchSize}`);
+      const totalBatches = Math.ceil(values.length / batchSize);
+      
+      excelLog.batch(`Starting batch processing`, {
+        totalRows: values.length,
+        batchSize: batchSize,
+        totalBatches: totalBatches
+      });
+      
+      let successfulBatches = 0;
+      let failedBatches = 0;
+      let payloadLimitHits = 0;
       
       for (let i = 0; i < values.length; i += batchSize) {
+        const batchStartTime = Date.now();
         const batch = values.slice(i, i + batchSize);
         const startRow = i + 2; // Start from row 2 (after headers)
         const endRow = startRow + batch.length - 1;
+        const batchNumber = Math.floor(i / batchSize) + 1;
         
         const range = `A${startRow}:${endColumn}${endRow}`;
         
         try {
+          excelLog.writing(`Writing batch ${batchNumber}/${totalBatches}`, {
+            batchNumber: batchNumber,
+            startRow: startRow,
+            endRow: endRow,
+            range: range,
+            batchSize: batch.length
+          });
+          
           await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${range}')`)
             .patch({
               values: batch
             });
           
-          logger.info(`✅ Updated batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(values.length / batchSize)} (rows ${startRow}-${endRow})`);
+          const batchDuration = Date.now() - batchStartTime;
+          successfulBatches++;
+          
+          excelLog.writing(`Batch ${batchNumber} completed successfully`, {
+            batchNumber: batchNumber,
+            duration: `${batchDuration}ms`,
+            rowsWritten: batch.length
+          });
           
           // Add a longer delay between batches to avoid rate limits
           if (i + batchSize < values.length) {
             await new Promise(resolve => setTimeout(resolve, 200));
           }
         } catch (batchError) {
+          const batchDuration = Date.now() - batchStartTime;
+          failedBatches++;
+          
           if (batchError.code === 'ResponsePayloadSizeLimitExceeded') {
-            logger.error(`❌ Payload limit exceeded for batch ${Math.floor(i / batchSize) + 1}, reducing batch size and retrying...`);
+            payloadLimitHits++;
+            excelLog.payloadLimit(`Payload limit exceeded for batch ${batchNumber}`, {
+              batchNumber: batchNumber,
+              batchSize: batch.length,
+              range: range,
+              duration: `${batchDuration}ms`,
+              errorCode: batchError.code
+            });
+            
             // Try with even smaller batch
             const smallerBatch = batch.slice(0, 5);
             const smallerEndRow = startRow + smallerBatch.length - 1;
             const smallerRange = `A${startRow}:${endColumn}${smallerEndRow}`;
             
             try {
+              excelLog.writing(`Retrying batch ${batchNumber} with smaller size`, {
+                originalSize: batch.length,
+                newSize: smallerBatch.length,
+                range: smallerRange
+              });
+              
               await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${smallerRange}')`)
                 .patch({
                   values: smallerBatch
                 });
-              logger.info(`✅ Updated smaller batch (rows ${startRow}-${smallerEndRow})`);
+              
+              excelLog.writing(`Smaller batch ${batchNumber} completed successfully`, {
+                batchNumber: batchNumber,
+                rowsWritten: smallerBatch.length
+              });
+              
+              successfulBatches++;
+              failedBatches--; // Adjust count since we succeeded with smaller batch
             } catch (smallerBatchError) {
-              logger.error(`❌ Even smaller batch failed: ${smallerBatchError.message}`);
+              excelLog.error(`Even smaller batch failed for batch ${batchNumber}`, smallerBatchError, {
+                batchNumber: batchNumber,
+                smallerBatchSize: smallerBatch.length,
+                range: smallerRange
+              });
               throw smallerBatchError;
             }
           } else {
-            logger.error(`❌ Failed to update batch ${Math.floor(i / batchSize) + 1}: ${batchError.message}`);
+            excelLog.error(`Batch ${batchNumber} failed`, batchError, {
+              batchNumber: batchNumber,
+              batchSize: batch.length,
+              range: range,
+              duration: `${batchDuration}ms`
+            });
             throw batchError;
           }
         }
       }
 
-      logger.info(`✅ Successfully updated ${records.length} records in Excel`);
+      const totalDuration = Date.now() - startTime;
+      excelLog.performance(`Excel update completed successfully`, {
+        totalDuration: `${totalDuration}ms`,
+        successfulBatches: successfulBatches,
+        failedBatches: failedBatches,
+        payloadLimitHits: payloadLimitHits,
+        totalRecords: records.length,
+        averageBatchTime: `${Math.round(totalDuration / totalBatches)}ms`
+      });
+      
       return true;
     } catch (error) {
-      logger.error('Error updating Excel spreadsheet:', error);
+      const totalDuration = Date.now() - startTime;
+      excelLog.error('Excel spreadsheet update failed', error, {
+        totalDuration: `${totalDuration}ms`,
+        recordCount: records.length
+      });
       throw error;
     }
   }
 
   async clearExistingDataInChunks(siteId) {
+    const startTime = Date.now();
+    
     try {
-      logger.info('🧹 Starting conservative data clearing approach...');
+      excelLog.clearing(`Starting conservative data clearing approach`, {
+        workbookId: this.workbookId,
+        worksheetName: this.worksheetName,
+        timestamp: new Date().toISOString()
+      });
       
       // Instead of trying to clear the entire worksheet at once, let's use a more conservative approach
       // We'll clear data in very small chunks and handle the payload size limits gracefully
       
       // First, let's try to get just the first few rows to see what we're working with
+      const testStartTime = Date.now();
       const testRange = await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='A1:Z10')`).get();
+      const testDuration = Date.now() - testStartTime;
+      
+      excelLog.clearing(`Test range retrieved`, {
+        testDuration: `${testDuration}ms`,
+        hasValues: !!testRange.values,
+        valueCount: testRange.values ? testRange.values.length : 0
+      });
       
       if (!testRange.values || testRange.values.length <= 1) {
-        logger.info('✅ Worksheet appears to be empty or only has headers, no clearing needed');
+        excelLog.clearing(`Worksheet appears to be empty or only has headers, no clearing needed`);
         return;
       }
 
@@ -204,17 +330,45 @@ class ExcelService {
       let hasMoreData = true;
       let consecutiveFailures = 0;
       const maxFailures = 3;
+      let chunkCount = 0;
+      let payloadLimitHits = 0;
+
+      excelLog.clearing(`Starting chunked clearing process`, {
+        clearChunkSize: clearChunkSize,
+        maxFailures: maxFailures,
+        startRow: currentRow
+      });
 
       while (hasMoreData && consecutiveFailures < maxFailures) {
+        chunkCount++;
+        const chunkStartTime = Date.now();
+        
         try {
           // Try to clear a small chunk
           const endRow = currentRow + clearChunkSize - 1;
           const clearRange = `A${currentRow}:Z${endRow}`;
           
+          excelLog.clearing(`Clearing chunk ${chunkCount}`, {
+            chunkNumber: chunkCount,
+            startRow: currentRow,
+            endRow: endRow,
+            range: clearRange,
+            chunkSize: clearChunkSize
+          });
+          
           await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${clearRange}')/clear`);
+          
+          const chunkDuration = Date.now() - chunkStartTime;
           clearedRows += clearChunkSize;
           consecutiveFailures = 0; // Reset failure counter on success
-          logger.info(`✅ Cleared chunk: rows ${currentRow}-${endRow} (${clearedRows} total rows cleared)`);
+          
+          excelLog.clearing(`Chunk ${chunkCount} cleared successfully`, {
+            chunkNumber: chunkCount,
+            startRow: currentRow,
+            endRow: endRow,
+            duration: `${chunkDuration}ms`,
+            totalClearedRows: clearedRows
+          });
           
           currentRow += clearChunkSize;
           
@@ -222,25 +376,56 @@ class ExcelService {
           await new Promise(resolve => setTimeout(resolve, 100));
           
         } catch (chunkError) {
+          const chunkDuration = Date.now() - chunkStartTime;
           consecutiveFailures++;
+          
           if (chunkError.code === 'ResponsePayloadSizeLimitExceeded') {
-            logger.warn(`⚠️ Payload limit reached at row ${currentRow}, stopping clear operation`);
+            payloadLimitHits++;
+            excelLog.payloadLimit(`Payload limit reached at row ${currentRow}`, {
+              chunkNumber: chunkCount,
+              currentRow: currentRow,
+              duration: `${chunkDuration}ms`,
+              errorCode: chunkError.code,
+              consecutiveFailures: consecutiveFailures
+            });
             hasMoreData = false;
           } else {
-            logger.error(`❌ Failed to clear chunk starting at row ${currentRow}: ${chunkError.message}`);
+            excelLog.error(`Failed to clear chunk ${chunkCount} starting at row ${currentRow}`, chunkError, {
+              chunkNumber: chunkCount,
+              currentRow: currentRow,
+              duration: `${chunkDuration}ms`,
+              consecutiveFailures: consecutiveFailures
+            });
+            
             if (consecutiveFailures >= maxFailures) {
-              logger.warn(`⚠️ Too many consecutive failures, stopping clear operation`);
+              excelLog.warn(`Too many consecutive failures, stopping clear operation`, {
+                chunkNumber: chunkCount,
+                consecutiveFailures: consecutiveFailures,
+                maxFailures: maxFailures
+              });
               hasMoreData = false;
             }
           }
         }
       }
 
-      logger.info(`✅ Successfully cleared ${clearedRows} rows of existing data (stopped due to payload limits or failures)`);
+      const totalDuration = Date.now() - startTime;
+      excelLog.performance(`Data clearing completed`, {
+        totalDuration: `${totalDuration}ms`,
+        totalChunks: chunkCount,
+        clearedRows: clearedRows,
+        payloadLimitHits: payloadLimitHits,
+        consecutiveFailures: consecutiveFailures,
+        stoppedReason: hasMoreData ? 'max_failures' : 'payload_limit'
+      });
+      
     } catch (error) {
-      logger.error('Error clearing worksheet in chunks:', error);
+      const totalDuration = Date.now() - startTime;
+      excelLog.error('Error clearing worksheet in chunks', error, {
+        totalDuration: `${totalDuration}ms`
+      });
       // Don't throw the error, just log it and continue
-      logger.warn('⚠️ Continuing with data update despite clear errors');
+      excelLog.warn('Continuing with data update despite clear errors');
     }
   }
 
