@@ -1,6 +1,6 @@
 require('isomorphic-fetch');
 const { Client } = require('@microsoft/microsoft-graph-client');
-const { PublicClientApplication } = require('@azure/msal-node');
+const { ConfidentialClientApplication } = require('@azure/msal-node');
 const { logger } = require('../utils/logger');
 
 class ExcelService {
@@ -27,32 +27,25 @@ class ExcelService {
       throw new Error('AZURE_TENANT_ID is required');
     }
 
-    // Initialize MSAL
-    this.msalClient = new PublicClientApplication({
+    // Initialize MSAL with client credentials flow
+    this.msalClient = new ConfidentialClientApplication({
       auth: {
         clientId: process.env.AZURE_CLIENT_ID,
         authority: `https://login.microsoftonline.com/${process.env.AZURE_TENANT_ID}`,
+        clientSecret: process.env.AZURE_CLIENT_SECRET
       }
     });
 
     this.client = Client.init({
       authProvider: async (done) => {
         try {
-          // Get access token using device code flow
-          const deviceCodeRequest = {
-            deviceCodeCallback: (response) => {
-              // Log the user code and verification URL
-              logger.info('Please authenticate:', {
-                userCode: response.userCode,
-                verificationUrl: response.verificationUri
-              });
-            },
-            scopes: ['Files.ReadWrite', 'User.Read']
-          };
-
-          const response = await this.msalClient.acquireTokenByDeviceCode(deviceCodeRequest);
+          // Get access token using client credentials flow
+          const response = await this.msalClient.acquireTokenByClientCredential({
+            scopes: ['https://graph.microsoft.com/.default']
+          });
           done(null, response.accessToken);
         } catch (error) {
+          logger.error('Failed to acquire token:', error);
           done(error, null);
         }
       }
