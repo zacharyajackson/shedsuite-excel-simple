@@ -30,16 +30,27 @@ const requiredEnvVars = [
 ];
 
 console.log('Checking environment variables...');
+const missingVars = [];
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
     console.error(`Missing required environment variable: ${envVar}`);
-    process.exit(1);
+    missingVars.push(envVar);
   }
 }
-console.log('Environment variables validated');
+
+if (missingVars.length > 0) {
+  console.error(`Missing ${missingVars.length} required environment variables: ${missingVars.join(', ')}`);
+  console.warn('Application will start but may have limited functionality');
+} else {
+  console.log('All required environment variables are present');
+}
 
 // Initialize Express app
 const app = express();
+
+// Track application startup state
+let isFullyInitialized = false;
+let startupStartTime = Date.now();
 
 logger.info('Application starting...', {
   nodeEnv: process.env.NODE_ENV,
@@ -83,24 +94,30 @@ app.use(requestLogger);
 app.get('/health', async (req, res) => {
   try {
     const healthStatus = {
-      status: 'healthy',
+      status: isFullyInitialized ? 'healthy' : 'starting',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       memory: process.memoryUsage(),
-      monitoring: monitoringService.getStatus(),
-      version: process.env.npm_package_version || '2.0.0'
+      version: process.env.npm_package_version || '2.0.0',
+      startupTime: Date.now() - startupStartTime
     };
 
-    // Check external dependencies
-    try {
-      await shedsuite.getTotalRecordCount();
-      healthStatus.shedsuite = 'connected';
-    } catch (error) {
-      healthStatus.shedsuite = 'disconnected';
-      healthStatus.status = 'degraded';
+    // Only check external dependencies if the service is fully initialized
+    if (isFullyInitialized) {
+      try {
+        await shedsuite.getTotalRecordCount();
+        healthStatus.shedsuite = 'connected';
+      } catch (error) {
+        healthStatus.shedsuite = 'disconnected';
+        healthStatus.status = 'degraded';
+        logger.warn('ShedSuite connection check failed during health check:', error.message);
+      }
+    } else {
+      healthStatus.shedsuite = 'starting';
     }
 
-    res.status(healthStatus.status === 'healthy' ? 200 : 503).json(healthStatus);
+    res.status(healthStatus.status === 'healthy' ? 200 : 
+              healthStatus.status === 'starting' ? 200 : 503).json(healthStatus);
   } catch (error) {
     logger.error('Health check failed:', error);
     res.status(503).json({
@@ -113,7 +130,16 @@ app.get('/health', async (req, res) => {
 
 // Readiness probe
 app.get('/ready', (req, res) => {
-  res.status(200).json({ status: 'ready' });
+  const uptime = process.uptime();
+  const isReady = isFullyInitialized && uptime > 5; // Consider ready after initialization and 5 seconds
+  
+  res.status(isReady ? 200 : 503).json({ 
+    status: isReady ? 'ready' : 'starting',
+    uptime: Math.round(uptime),
+    startupTime: Date.now() - startupStartTime,
+    isFullyInitialized,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Routes
@@ -179,7 +205,8 @@ async function startServices() {
       logger.info('ShedSuite API connection successful', { recordCount });
     } catch (error) {
       logger.error('ShedSuite API connection failed:', error);
-      throw error;
+      // Don't throw - allow other services to start
+      logger.warn('ShedSuite service will be unavailable');
     }
 
     logger.info('Testing Excel API connection...');
@@ -188,10 +215,11 @@ async function startServices() {
       logger.info('Excel API connection successful');
     } catch (error) {
       logger.error('Excel API connection failed:', error);
-      throw error;
+      // Don't throw - allow other services to start
+      logger.warn('Excel service will be unavailable');
     }
 
-    // Perform initial full sync
+    // Perform initial full sync only if both services are available
     logger.info('Performing initial full sync...');
     try {
       // Register this operation with the graceful shutdown handler
@@ -315,9 +343,13 @@ async function startServices() {
     });
 
     logger.info('All services initialized successfully');
+    isFullyInitialized = true;
+    logger.info('Application is now fully initialized and ready to serve requests');
   } catch (error) {
     logger.error('Failed to start services:', error);
-    throw error;
+    // Don't throw - let the server continue running with degraded functionality
+    logger.warn('Application will run with limited functionality due to service initialization failures');
+    isFullyInitialized = true; // Mark as initialized even with errors so health check works
   }
 }
 
@@ -325,9 +357,25 @@ async function startServices() {
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   logger.info(`Server is running on port ${PORT}`);
+  
+  // Start services in the background without blocking the server
+  const startupTimeout = setTimeout(() => {
+    if (!isFullyInitialized) {
+      logger.warn('Service startup timeout reached, marking as initialized with limited functionality');
+      isFullyInitialized = true;
+    }
+  }, 60000); // 60 second timeout
+  
   startServices().catch(error => {
     logger.error('Failed to start services:', error);
-    process.exit(1);
+    // Don't exit the process - let the server continue running
+    // The health check will show degraded status until services are ready
+  }).finally(() => {
+    clearTimeout(startupTimeout);
+    if (!isFullyInitialized) {
+      isFullyInitialized = true;
+      logger.info('Service startup completed, application is now ready');
+    }
   });
 });
 

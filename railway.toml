@@ -35,3 +35,9 @@ path = "/health"
 interval = 30
 timeout = 15
 graceInterval = 300
+
+[services.startupProbe]
+path = "/ready"
+interval = 10
+timeout = 5
+failureThreshold = 30

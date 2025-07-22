@@ -5,6 +5,16 @@ const { ErrorHandler } = require('../utils/error-handler');
 
 class ShedSuiteService {
   constructor() {
+    this._initialized = false;
+    this.config = null;
+    this.errorHandler = null;
+  }
+
+  _initialize() {
+    if (this._initialized) {
+      return;
+    }
+
     // Validate required environment variables
     if (!process.env.API_BASE_URL) {
       throw new Error('API_BASE_URL is required');
@@ -57,9 +67,12 @@ class ShedSuiteService {
         circuitBreakerEnabled: true
       }
     });
+
+    this._initialized = true;
   }
 
   async makeRequest(url, context = {}) {
+    this._initialize(); // Ensure config and errorHandler are initialized
     const operationContext = this.errorHandler.createErrorContext('api_request', {
       service: 'ShedSuiteService',
       url: url.replace(this.config.authToken, '***'),
@@ -128,6 +141,7 @@ class ShedSuiteService {
   }
 
   async getTotalRecordCount() {
+    this._initialize(); // Ensure config and errorHandler are initialized
     try {
       logger.debug('Getting total record count...');
       const url = this.buildApiUrl(1, {}, true);
@@ -174,6 +188,7 @@ class ShedSuiteService {
   }
 
   buildApiUrl(page, filters = {}, countOnly = false) {
+    this._initialize(); // Ensure config and errorHandler are initialized
     try {
       // Build the full API path
       let apiPath = this.config.endpoint;
@@ -217,6 +232,7 @@ class ShedSuiteService {
   }
 
   async fetchAllRecords(filters = {}) {
+    this._initialize(); // Ensure config and errorHandler are initialized
     const startTime = Date.now();
     logger.info('Starting data fetch from ShedSuite API...', { filters });
 
@@ -361,6 +377,7 @@ class ShedSuiteService {
   }
 
   formatRecordsForExport(records) {
+    this._initialize(); // Ensure config and errorHandler are initialized
     const startTime = Date.now();
     logger.info(`Formatting ${records.length} records for export...`);
 
@@ -606,6 +623,7 @@ class ShedSuiteService {
 
   // Health check method
   async healthCheck() {
+    this._initialize(); // Ensure config and errorHandler are initialized
     try {
       logger.debug('Performing ShedSuite API health check...');
 
@@ -633,6 +651,7 @@ class ShedSuiteService {
   }
 
   deduplicateByCustomerId(records) {
+    this._initialize(); // Ensure config and errorHandler are initialized
     const customerMap = new Map();
     let duplicatesRemoved = 0;
 

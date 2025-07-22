@@ -5,6 +5,18 @@ const { logger } = require('../utils/logger');
 
 class ExcelService {
   constructor() {
+    this._initialized = false;
+    this.msalClient = null;
+    this.client = null;
+    this.workbookId = null;
+    this.worksheetName = null;
+  }
+
+  _initialize() {
+    if (this._initialized) {
+      return;
+    }
+
     // Initialize MSAL
     this.msalClient = new PublicClientApplication({
       auth: {
@@ -38,9 +50,12 @@ class ExcelService {
 
     this.workbookId = process.env.EXCEL_WORKBOOK_ID;
     this.worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Sheet1';
+
+    this._initialized = true;
   }
 
   async updateSpreadsheet(records) {
+    this._initialize(); // Ensure service is initialized
     try {
       logger.info(`Updating Excel spreadsheet ${this.workbookId}`);
 
@@ -64,6 +79,7 @@ class ExcelService {
   }
 
   async clearWorksheet() {
+    this._initialize(); // Ensure service is initialized
     try {
       // Get the used range to determine how many rows to clear
       const range = await this.client.api(`/me/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/usedRange`).get();
@@ -80,6 +96,7 @@ class ExcelService {
   }
 
   formatRecordsForExcel(records) {
+    this._initialize(); // Ensure service is initialized
     return records.map(record => [
       record.id,
       record.order_number,
@@ -95,6 +112,92 @@ class ExcelService {
       record.customer_phone_primary,
       record.delivery_address
     ]);
+  }
+
+  /**
+   * Perform a health check on the Excel service
+   * @returns {Promise<Object>} Health check result
+   */
+  async healthCheck() {
+    try {
+      // Check if required environment variables are set
+      if (!process.env.AZURE_CLIENT_ID || !process.env.AZURE_TENANT_ID || !process.env.EXCEL_WORKBOOK_ID) {
+        return {
+          status: 'unhealthy',
+          error: 'Missing required environment variables for Excel service',
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      this._initialize(); // Ensure service is initialized
+
+      // Check if MSAL client is properly initialized
+      if (!this.msalClient) {
+        return {
+          status: 'unhealthy',
+          error: 'MSAL client not initialized',
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      // Try to access the workbook to verify connectivity
+      try {
+        await this.client.api(`/me/drive/items/${this.workbookId}`).get();
+        
+        return {
+          status: 'healthy',
+          timestamp: new Date().toISOString(),
+          workbookId: this.workbookId,
+          worksheetName: this.worksheetName
+        };
+      } catch (error) {
+        return {
+          status: 'degraded',
+          error: `Cannot access workbook: ${error.message}`,
+          timestamp: new Date().toISOString(),
+          workbookId: this.workbookId
+        };
+      }
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
+   * Initialize the Excel client
+   * @returns {Promise<void>}
+   */
+  async initializeClient() {
+    try {
+      logger.info('Initializing Excel client...');
+      
+      // Check if required environment variables are set
+      if (!process.env.AZURE_CLIENT_ID || !process.env.AZURE_TENANT_ID || !process.env.EXCEL_WORKBOOK_ID) {
+        throw new Error('Missing required environment variables for Excel service');
+      }
+
+      this._initialize(); // Ensure service is initialized
+
+      // Verify that MSAL client is properly initialized
+      if (!this.msalClient) {
+        throw new Error('MSAL client not initialized');
+      }
+
+      // Test connectivity by trying to access the workbook
+      await this.client.api(`/me/drive/items/${this.workbookId}`).get();
+      
+      logger.info('Excel client initialized successfully', {
+        workbookId: this.workbookId,
+        worksheetName: this.worksheetName
+      });
+    } catch (error) {
+      logger.error('Failed to initialize Excel client:', error);
+      throw error;
+    }
   }
 }
 
