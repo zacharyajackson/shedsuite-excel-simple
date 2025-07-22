@@ -267,7 +267,7 @@ async function startServices() {
           console.log(`📊 Initial sync limit set to ${initialSyncLimit} records`);
           const records = await shedsuite.fetchAllRecords({ 
             maxRecords: initialSyncLimit,
-            pageSize: 1000, // Use larger page size for faster initial sync
+            pageSize: 100, // Use correct page size for ShedSuite API
             retryDelay: 50 // Reduce delay for faster processing
           });
 

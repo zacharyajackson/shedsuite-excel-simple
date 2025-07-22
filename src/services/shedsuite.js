@@ -30,7 +30,7 @@ class ShedSuiteService {
       apiPath: process.env.API_PATH || 'api/public',
       endpoint: process.env.API_ENDPOINT || 'customer-orders/v1',
       authToken: process.env.API_TOKEN,
-      pageSize: parseInt(process.env.PAGE_SIZE) || 1000,
+      pageSize: parseInt(process.env.PAGE_SIZE) || 100,
       maxPages: parseInt(process.env.MAX_PAGES) || 1000,
       sortBy: process.env.SORT_BY || 'id',
       sortOrder: process.env.SORT_ORDER || 'asc',
@@ -171,46 +171,16 @@ class ShedSuiteService {
     this._initialize(); // Ensure config and errorHandler are initialized
     try {
       logger.debug('Getting total record count...');
-      const url = this.buildApiUrl(1, {}, true);
-      logger.info('API request for record count:', { url: url.replace(this.config.authToken, '***') });
-
-      const data = await this.makeRequest(url);
-      logger.info('API response received:', {
-        keys: Object.keys(data),
-        responseSize: JSON.stringify(data).length,
-        hasData: !!data,
-        dataStructure: typeof data,
-        isArray: Array.isArray(data)
-      });
-
-      // Handle array response (no pagination)
-      if (Array.isArray(data)) {
-        logger.info(`Total records from array response: ${data.length}`);
-        return data.length;
-      }
-
-      // Try different response formats for paginated responses
-      let total = null;
-      if (data.meta?.total !== undefined) total = data.meta.total;
-      else if (data.total !== undefined) total = data.total;
-      else if (data.pagination?.total !== undefined) total = data.pagination.total;
-      else if (data.count !== undefined) total = data.count;
-      else if (data.totalCount !== undefined) total = data.totalCount;
-
-      if (total !== null) {
-        logger.info(`Total records from metadata: ${total}`);
-        return total;
-      }
-
-      // If we can't determine the count, use a reasonable default
-      logger.warn('Unable to determine total record count from API response, using default page size', {
-        availableFields: Object.keys(data),
-        sampleData: JSON.stringify(data).substring(0, 500)
-      });
-      return this.config.pageSize;
+      
+      // Since the API doesn't provide total count metadata, we'll make a conservative estimate
+      // based on the fact that this is a production system with many records
+      logger.info('API does not provide total count metadata, using conservative estimate for production');
+      return 100000; // Conservative estimate for production
     } catch (error) {
       logger.error('Error getting total record count:', error);
-      throw error;
+      // Return a conservative estimate instead of throwing
+      logger.warn('Using conservative estimate of 100k records due to error');
+      return 100000;
     }
   }
 
@@ -286,11 +256,11 @@ class ShedSuiteService {
       while (hasMoreData && page <= this.config.maxPages) {
         const pageUrl = this.buildApiUrl(page, filters);
         
-        // Show progress percentage if we have total count
+        // Show progress information
         let progressInfo = `(${allRecords.length} records so far)`;
-        if (totalExpectedRecords) {
-          const progressPercent = Math.round((allRecords.length / totalExpectedRecords) * 100);
-          progressInfo = `(${allRecords.length}/${totalExpectedRecords} records, ${progressPercent}%)`;
+        if (totalExpectedRecords && totalExpectedRecords >= 100000) {
+          // Conservative estimate - show progress differently
+          progressInfo = `(${allRecords.length} records so far, fetching until end of data)`;
         }
         
         console.log(`📥 Fetching page ${page}... ${progressInfo}`);
@@ -336,16 +306,10 @@ class ShedSuiteService {
               logger.info(`Reached maximum record limit (${maxRecords}), stopping pagination`);
               hasMoreData = false;
             }
-            // Check if we've reached the expected total
-            else if (totalExpectedRecords && allRecords.length >= totalExpectedRecords) {
-              console.log(`🛑 Reached expected total records (${totalExpectedRecords}), stopping pagination`);
-              logger.info(`Reached expected total records (${totalExpectedRecords}), stopping pagination`);
-              hasMoreData = false;
-            }
-            // More forgiving stopping condition to handle date parsing issues
-            else if (pageRecords.length < (pageSize * (parseFloat(process.env.MIN_PAGE_SIZE_THRESHOLD) || 0.05))) {
-              console.log(`🛑 Page ${page} had only ${pageRecords.length} records (very small compared to page size ${pageSize}), stopping pagination`);
-              logger.info(`Page ${page} had only ${pageRecords.length} records (very small compared to page size ${pageSize}), stopping pagination`);
+            // Stop if we get a significantly smaller page than expected (end of data)
+            else if (pageRecords.length < (pageSize * 0.5)) {
+              console.log(`🛑 Page ${page} had only ${pageRecords.length} records (less than 50% of page size ${pageSize}), likely end of data`);
+              logger.info(`Page ${page} had only ${pageRecords.length} records (less than 50% of page size ${pageSize}), likely end of data`);
               hasMoreData = false;
             } else {
               page++;
