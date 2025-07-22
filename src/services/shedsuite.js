@@ -81,10 +81,27 @@ class ShedSuiteService {
       ...context
     });
 
-    return await this.errorHandler.executeWithRetry(
-      () => this.executeRequest(url),
-      operationContext
-    );
+    // Check if this is an authentication error and don't retry
+    try {
+      const result = await this.executeRequest(url);
+      return result;
+    } catch (error) {
+      // If it's an authentication error (401, 403), don't retry
+      if (error.statusCode === 401 || error.statusCode === 403) {
+        logger.error('Authentication failed - API token may be expired:', {
+          statusCode: error.statusCode,
+          message: error.message,
+          url: url.replace(this.config.authToken, '***')
+        });
+        throw new Error(`Authentication failed: ${error.message}`);
+      }
+      
+      // For other errors, use the retry mechanism
+      return await this.errorHandler.executeWithRetry(
+        () => this.executeRequest(url),
+        operationContext
+      );
+    }
   }
 
   executeRequest(url) {
