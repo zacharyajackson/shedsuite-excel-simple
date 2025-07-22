@@ -312,7 +312,26 @@ class ShedSuiteService {
               logger.info(`Page ${page} had only ${pageRecords.length} records (less than 50% of page size ${pageSize}), likely end of data`);
               hasMoreData = false;
             } else {
-              page++;
+              // Test if there's more data by checking the next page
+              console.log(`🔍 Testing if there's more data beyond page ${page}...`);
+              try {
+                const testPageUrl = this.buildApiUrl(page + 1, filters);
+                const testData = await this.makeRequest(testPageUrl);
+                const testRecords = this.extractRecords(testData);
+                
+                if (testRecords.length === 0) {
+                  console.log(`🛑 Test page ${page + 1} returned 0 records - we've reached the end of data`);
+                  logger.info(`Test page ${page + 1} returned 0 records - we've reached the end of data`);
+                  hasMoreData = false;
+                } else {
+                  console.log(`✅ Test page ${page + 1} returned ${testRecords.length} records - continuing...`);
+                  page++;
+                }
+              } catch (testError) {
+                console.log(`🛑 Test page ${page + 1} failed - likely end of data: ${testError.message}`);
+                logger.info(`Test page ${page + 1} failed - likely end of data:`, { error: testError.message });
+                hasMoreData = false;
+              }
             }
           }
         } catch (pageError) {
