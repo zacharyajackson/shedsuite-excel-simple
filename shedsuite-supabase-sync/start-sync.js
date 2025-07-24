@@ -224,9 +224,11 @@ async function fetchAllShedSuiteRecords() {
   let page = 1;
   let hasMore = true;
   const pageSize = 100;
+  const startTime = Date.now();
   
   while (hasMore) {
     try {
+      const pageStartTime = Date.now();
       console.log(`  📄 Fetching page ${page}...`);
       
       const response = await shedsuiteAPI.get('/api/public/customer-orders/v1', {
@@ -239,6 +241,7 @@ async function fetchAllShedSuiteRecords() {
       });
       
       const records = response.data;
+      const pageDuration = Date.now() - pageStartTime;
       
       if (!Array.isArray(records) || records.length === 0) {
         console.log(`  ✅ No more records found on page ${page}`);
@@ -247,7 +250,7 @@ async function fetchAllShedSuiteRecords() {
       }
       
       allRecords.push(...records);
-      console.log(`  ✅ Fetched ${records.length} records from page ${page}`);
+      console.log(`  ✅ Fetched ${records.length} records from page ${page} (${pageDuration}ms) - Total: ${allRecords.length}`);
       
       // If we got fewer records than pageSize, we've reached the end
       if (records.length < pageSize) {
@@ -265,7 +268,8 @@ async function fetchAllShedSuiteRecords() {
     }
   }
   
-  console.log(`✅ Total records fetched: ${allRecords.length}`);
+  const totalDuration = Date.now() - startTime;
+  console.log(`✅ Total records fetched: ${allRecords.length} (${totalDuration}ms)`);
   return allRecords;
 }
 
@@ -280,31 +284,71 @@ async function syncToSupabase(records) {
   
   // Transform records
   console.log('  🔄 Transforming records...');
-  const transformedRecords = records.map(record => transformRecord(record)).filter(record => record !== null);
-  console.log(`  ✅ Transformed ${transformedRecords.length} records`);
+  const transformStartTime = Date.now();
   
-  // Sync to Supabase using upsert (insert or update)
-  try {
-    console.log('  🔄 Upserting to Supabase...');
-    const { data, error } = await supabase
-      .from('shedsuite_orders')
-      .upsert(transformedRecords, {
-        onConflict: 'id',
-        ignoreDuplicates: false
-      })
-      .select();
-    
-    if (error) {
-      throw error;
+  const transformedRecords = [];
+  for (let i = 0; i < records.length; i++) {
+    const record = transformRecord(records[i]);
+    if (record !== null) {
+      transformedRecords.push(record);
     }
     
-    console.log(`✅ Successfully synced ${data.length} records to Supabase`);
-    return data.length;
-    
-  } catch (error) {
-    console.error('❌ Error syncing to Supabase:', error.message);
-    throw error;
+    // Show progress every 1000 records
+    if ((i + 1) % 1000 === 0) {
+      console.log(`    🔄 Transformed ${i + 1}/${records.length} records...`);
+    }
   }
+  
+  const transformDuration = Date.now() - transformStartTime;
+  console.log(`  ✅ Transformed ${transformedRecords.length} records (${transformDuration}ms)`);
+  
+  // Batch size for upsert operations
+  const batchSize = 1000;
+  let totalSynced = 0;
+  
+  console.log(`  🔄 Upserting to Supabase in batches of ${batchSize}...`);
+  
+  // Process in batches
+  for (let i = 0; i < transformedRecords.length; i += batchSize) {
+    const batch = transformedRecords.slice(i, i + batchSize);
+    const batchNumber = Math.floor(i / batchSize) + 1;
+    const totalBatches = Math.ceil(transformedRecords.length / batchSize);
+    
+    try {
+      console.log(`    📦 Processing batch ${batchNumber}/${totalBatches} (${batch.length} records)...`);
+      
+      const startTime = Date.now();
+      const { data, error } = await supabase
+        .from('shedsuite_orders')
+        .upsert(batch, {
+          onConflict: 'id',
+          ignoreDuplicates: false
+        })
+        .select();
+      
+      const duration = Date.now() - startTime;
+      
+      if (error) {
+        console.error(`    ❌ Batch ${batchNumber} failed:`, error.message);
+        throw error;
+      }
+      
+      totalSynced += data.length;
+      console.log(`    ✅ Batch ${batchNumber} completed: ${data.length} records synced (${duration}ms)`);
+      
+      // Add a small delay between batches to be respectful to the database
+      if (i + batchSize < transformedRecords.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+    } catch (error) {
+      console.error(`❌ Error in batch ${batchNumber}:`, error.message);
+      throw error;
+    }
+  }
+  
+  console.log(`✅ Successfully synced ${totalSynced} records to Supabase`);
+  return totalSynced;
 }
 
 // Main sync function
@@ -332,49 +376,218 @@ async function performFullSync() {
   }
 }
 
-// Continuous sync function (updates only)
+// Continuous sync function with smart deduplication and updates
 async function performContinuousSync() {
   try {
-    console.log('🔄 Starting continuous sync (updates only)...');
+    console.log('🔄 Starting continuous sync with smart deduplication...');
     
-    // For continuous sync, we'll fetch recent records and update existing ones
-    const response = await shedsuiteAPI.get('/api/public/customer-orders/v1', {
-      params: {
-        limit: 100,
-        sortOrder: 'desc',
-        sortBy: 'id'
-      }
-    });
+    // Get the last sync timestamp from our metadata
+    const { data: metadata } = await supabase
+      .from('sync_metadata')
+      .select('last_sync_timestamp')
+      .order('id', { ascending: false })
+      .limit(1);
     
+    const lastSyncTime = metadata && metadata[0] ? metadata[0].last_sync_timestamp : null;
+    
+    if (lastSyncTime) {
+      console.log(`  📅 Last sync: ${lastSyncTime}`);
+    } else {
+      console.log('  📅 No previous sync found - will fetch recent records');
+    }
+    
+    // Fetch recent records (either since last sync or most recent 1000)
+    const params = {
+      limit: 1000,
+      sortOrder: 'desc',
+      sortBy: 'id'
+    };
+    
+    if (lastSyncTime) {
+      // Add filter for records updated since last sync
+      params.updated_after = lastSyncTime;
+    }
+    
+    console.log('  📥 Fetching recent records from ShedSuite...');
+    const response = await shedsuiteAPI.get('/api/public/customer-orders/v1', { params });
     const records = response.data;
     
-    if (Array.isArray(records) && records.length > 0) {
-      const transformedRecords = records.map(record => transformRecord(record)).filter(record => record !== null);
-      
-      const { data, error } = await supabase
-        .from('shedsuite_orders')
-        .upsert(transformedRecords, {
-          onConflict: 'id',
-          ignoreDuplicates: false
-        })
-        .select();
-      
-      if (error) {
-        throw error;
-      }
-      
-      console.log(`✅ Continuous sync: Updated ${data.length} records`);
+    if (!Array.isArray(records) || records.length === 0) {
+      console.log('  ✅ No new records to sync');
+      return;
     }
+    
+    console.log(`  📊 Found ${records.length} records to process`);
+    
+    // Transform records
+    const transformedRecords = records.map(record => transformRecord(record)).filter(record => record !== null);
+    console.log(`  🔄 Transformed ${transformedRecords.length} records`);
+    
+    if (transformedRecords.length === 0) {
+      console.log('  ✅ No valid records to sync');
+      return;
+    }
+    
+    // Perform smart upsert with deduplication
+    const result = await performSmartUpsert(transformedRecords);
+    
+    // Update sync metadata
+    const newSyncTime = new Date().toISOString();
+    await supabase
+      .from('sync_metadata')
+      .upsert({
+        id: 1,
+        last_sync_timestamp: newSyncTime,
+        sync_status: 'completed',
+        records_processed: result.totalProcessed,
+        records_inserted: result.inserted,
+        records_updated: result.updated,
+        sync_duration_ms: result.duration,
+        updated_at: newSyncTime
+      });
+    
+    console.log(`✅ Continuous sync completed: ${result.inserted} inserted, ${result.updated} updated`);
     
   } catch (error) {
     console.error('❌ Continuous sync failed:', error.message);
+    
+    // Update sync metadata with error
+    await supabase
+      .from('sync_metadata')
+      .upsert({
+        id: 1,
+        sync_status: 'failed',
+        error_message: error.message,
+        updated_at: new Date().toISOString()
+      });
   }
+}
+
+// Smart upsert function with detailed deduplication logic
+async function performSmartUpsert(records) {
+  console.log('  🔄 Performing smart upsert with deduplication...');
+  
+  const startTime = Date.now();
+  let inserted = 0;
+  let updated = 0;
+  let totalProcessed = 0;
+  
+  // Process in smaller batches for better control
+  const batchSize = 100;
+  
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    const batchNumber = Math.floor(i / batchSize) + 1;
+    const totalBatches = Math.ceil(records.length / batchSize);
+    
+    console.log(`    📦 Processing batch ${batchNumber}/${totalBatches} (${batch.length} records)...`);
+    
+    try {
+      // First, check which records already exist
+      const recordIds = batch.map(record => record.id).filter(id => id);
+      
+      if (recordIds.length === 0) {
+        console.log(`    ⚠️  No valid IDs in batch ${batchNumber}`);
+        continue;
+      }
+      
+      // Check existing records
+      const { data: existingRecords, error: checkError } = await supabase
+        .from('shedsuite_orders')
+        .select('id, sync_timestamp')
+        .in('id', recordIds);
+      
+      if (checkError) {
+        throw checkError;
+      }
+      
+      const existingIds = new Set(existingRecords.map(r => r.id));
+      const existingSyncTimes = new Map(existingRecords.map(r => [r.id, r.sync_timestamp]));
+      
+      // Separate new and existing records
+      const newRecords = [];
+      const updateRecords = [];
+      
+      batch.forEach(record => {
+        if (record.id) {
+          if (existingIds.has(record.id)) {
+            // Check if this record is newer than what we have
+            const existingSyncTime = existingSyncTimes.get(record.id);
+            const recordSyncTime = record.sync_timestamp;
+            
+            if (!existingSyncTime || new Date(recordSyncTime) > new Date(existingSyncTime)) {
+              updateRecords.push(record);
+            }
+            // If not newer, skip it (deduplication)
+          } else {
+            newRecords.push(record);
+          }
+        }
+      });
+      
+      console.log(`      📊 Batch ${batchNumber}: ${newRecords.length} new, ${updateRecords.length} updates`);
+      
+      // Insert new records
+      if (newRecords.length > 0) {
+        const { data: insertData, error: insertError } = await supabase
+          .from('shedsuite_orders')
+          .insert(newRecords)
+          .select();
+        
+        if (insertError) {
+          throw insertError;
+        }
+        
+        inserted += insertData.length;
+        console.log(`      ✅ Inserted ${insertData.length} new records`);
+      }
+      
+      // Update existing records
+      if (updateRecords.length > 0) {
+        const { data: updateData, error: updateError } = await supabase
+          .from('shedsuite_orders')
+          .upsert(updateRecords, {
+            onConflict: 'id',
+            ignoreDuplicates: false
+          })
+          .select();
+        
+        if (updateError) {
+          throw updateError;
+        }
+        
+        updated += updateData.length;
+        console.log(`      ✅ Updated ${updateData.length} existing records`);
+      }
+      
+      totalProcessed += batch.length;
+      
+      // Small delay between batches
+      if (i + batchSize < records.length) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+    } catch (error) {
+      console.error(`    ❌ Batch ${batchNumber} failed:`, error.message);
+      throw error;
+    }
+  }
+  
+  const duration = Date.now() - startTime;
+  
+  return {
+    inserted,
+    updated,
+    totalProcessed,
+    duration
+  };
 }
 
 // Main execution
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0] || 'full';
+  const interval = args[1] || '5'; // Default 5 minutes
   
   switch (command) {
     case 'full':
@@ -382,18 +595,41 @@ async function main() {
       break;
     case 'continuous':
       console.log('🔄 Starting continuous sync mode...');
+      console.log(`⏰ Sync interval: ${interval} minutes`);
       console.log('Press Ctrl+C to stop');
       
-      // Run continuous sync every 5 minutes
-      setInterval(performContinuousSync, 5 * 60 * 1000);
+      // Run continuous sync at specified interval
+      const intervalMs = parseInt(interval) * 60 * 1000;
+      setInterval(performContinuousSync, intervalMs);
       
       // Run initial sync
       await performContinuousSync();
       break;
+    case 'once':
+      console.log('🔄 Running single continuous sync...');
+      await performContinuousSync();
+      break;
     default:
+      console.log('🚀 ShedSuite to Supabase Sync Tool');
+      console.log('=====================================');
+      console.log('');
       console.log('Usage:');
-      console.log('  node start-sync.js full        - Perform full sync (all records)');
-      console.log('  node start-sync.js continuous  - Start continuous sync (updates only)');
+      console.log('  node start-sync.js full                    - Perform full sync (all records)');
+      console.log('  node start-sync.js continuous [minutes]    - Start continuous sync (default: 5 min)');
+      console.log('  node start-sync.js once                    - Run single continuous sync');
+      console.log('');
+      console.log('Examples:');
+      console.log('  node start-sync.js full                    - Sync all 97k+ records');
+      console.log('  node start-sync.js continuous              - Continuous sync every 5 minutes');
+      console.log('  node start-sync.js continuous 10           - Continuous sync every 10 minutes');
+      console.log('  node start-sync.js once                    - Single sync of recent changes');
+      console.log('');
+      console.log('Features:');
+      console.log('  ✅ Smart deduplication (no duplicates)');
+      console.log('  ✅ Incremental updates (only changed records)');
+      console.log('  ✅ Timestamp-based sync tracking');
+      console.log('  ✅ Detailed progress logging');
+      console.log('  ✅ Error handling and recovery');
       break;
   }
 }

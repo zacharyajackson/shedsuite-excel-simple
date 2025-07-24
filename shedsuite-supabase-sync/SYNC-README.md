@@ -30,14 +30,26 @@ This will:
 To keep your data updated continuously:
 
 ```bash
+# Run continuous sync every 5 minutes (default)
 node start-sync.js continuous
+
+# Run continuous sync every 10 minutes
+node start-sync.js continuous 10
+
+# Run single sync of recent changes
+node start-sync.js once
+
+# Or use the convenience script
+./run-continuous.sh 5
 ```
 
 This will:
-- ✅ Run every 5 minutes
-- ✅ Only fetch recent records
-- ✅ Update existing records in Supabase
-- ✅ No appending, just updates
+- ✅ **Smart deduplication** - No duplicate records
+- ✅ **Incremental updates** - Only sync changed records
+- ✅ **Timestamp tracking** - Knows what's already synced
+- ✅ **Efficient processing** - Batched operations
+- ✅ **Detailed logging** - See exactly what's happening
+- ✅ **Error recovery** - Handles failures gracefully
 
 Press `Ctrl+C` to stop.
 
@@ -46,7 +58,9 @@ Press `Ctrl+C` to stop.
 | Command | Description |
 |---------|-------------|
 | `node start-sync.js full` | One-time full sync of all data |
-| `node start-sync.js continuous` | Continuous sync (updates every 5 minutes) |
+| `node start-sync.js continuous [minutes]` | Continuous sync (default: 5 minutes) |
+| `node start-sync.js once` | Single sync of recent changes |
+| `./run-continuous.sh [minutes]` | Run continuous sync with logging |
 | `node start-sync.js` | Shows usage help |
 
 ## 🔧 Configuration
@@ -62,11 +76,18 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
 ## 📊 What It Does
 
+### Full Sync:
 1. **Fetches ALL data** from ShedSuite API (paginated)
 2. **Transforms data** to match your table schema
 3. **Upserts to Supabase** (inserts new records, updates existing ones)
 4. **No duplicates** - uses record ID as the conflict resolution key
-5. **Continuous updates** - keeps your data fresh
+
+### Continuous Sync:
+1. **Smart deduplication** - Checks existing records before inserting
+2. **Incremental updates** - Only fetches records changed since last sync
+3. **Timestamp tracking** - Maintains sync metadata in database
+4. **Efficient batching** - Processes records in optimal batches
+5. **Error recovery** - Handles failures and continues operation
 
 ## 🎯 Result
 
