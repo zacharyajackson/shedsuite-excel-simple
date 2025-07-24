@@ -68,7 +68,7 @@ class SupabaseClient {
       
       // Test connection by making a simple query
       const { data, error } = await this.client
-        .from('customer_orders')
+        .from('shedsuite_orders')
         .select('count')
         .limit(1);
 
@@ -108,7 +108,7 @@ class SupabaseClient {
       });
 
       const { data, error } = await this.client
-        .from('customer_orders')
+        .from('shedsuite_orders')
         .upsert(orders, {
           onConflict: 'id',
           ignoreDuplicates: false
@@ -255,7 +255,7 @@ class SupabaseClient {
       this._initialize();
       
       const { data, error } = await this.client
-        .from('customer_orders')
+        .from('shedsuite_orders')
         .select('created_at, updated_at', { count: 'exact' });
 
       if (error) {
@@ -290,7 +290,7 @@ class SupabaseClient {
       cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
 
       const { data, error } = await this.client
-        .from('customer_orders')
+        .from('shedsuite_orders')
         .delete()
         .lt('created_at', cutoffDate.toISOString())
         .select();

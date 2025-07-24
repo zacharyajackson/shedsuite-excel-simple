@@ -138,7 +138,7 @@ class DataSyncService {
       }
 
       // Transform records
-      const transformationResult = dataTransformer.transformBatch(rawRecords, 'customer_orders');
+      const transformationResult = dataTransformer.transformBatch(rawRecords, 'shedsuite_orders');
       
       if (transformationResult.errors.length > 0) {
         syncLogger.warn('Some records failed transformation', {
