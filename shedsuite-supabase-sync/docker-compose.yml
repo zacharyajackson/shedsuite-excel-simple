@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  shedsuite-supabase-sync:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - LOG_LEVEL=info
+      # ShedSuite API Configuration
+      - SHEDSUITE_API_BASE_URL=${SHEDSUITE_API_BASE_URL}
+      - SHEDSUITE_API_TOKEN=${SHEDSUITE_API_TOKEN}
+      - SHEDSUITE_API_PATH=${SHEDSUITE_API_PATH:-api/public}
+      - SHEDSUITE_API_ENDPOINT=${SHEDSUITE_API_ENDPOINT:-customer-orders/v1}
+      - SHEDSUITE_PAGE_SIZE=${SHEDSUITE_PAGE_SIZE:-100}
+      - SHEDSUITE_MAX_PAGES=${SHEDSUITE_MAX_PAGES:-1000}
+      # Supabase Configuration
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      # Sync Configuration
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
+      - BATCH_SIZE=${BATCH_SIZE:-100}
+      - ENABLE_REAL_TIME_SYNC=${ENABLE_REAL_TIME_SYNC:-true}
+      # Security Configuration
+      - CORS_ORIGIN=*
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-900000}
+      - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - shedsuite-network
+
+  # Optional: Add a simple monitoring dashboard
+  monitoring:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    networks:
+      - shedsuite-network
+    depends_on:
+      - shedsuite-supabase-sync
+
+volumes:
+  grafana-storage:
+
+networks:
+  shedsuite-network:
+    driver: bridge 

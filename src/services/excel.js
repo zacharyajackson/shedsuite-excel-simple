@@ -323,6 +323,44 @@ class ExcelService {
         return;
       }
 
+      // Check if there's actually data beyond the header row
+      const hasDataBeyondHeader = testRange.values.length > 1 && 
+        testRange.values.some((row, index) => index > 0 && row.some(cell => cell !== null && cell !== undefined && cell !== ''));
+      
+      if (!hasDataBeyondHeader) {
+        excelLog.clearing(`No meaningful data found beyond header row, no clearing needed`);
+        return;
+      }
+
+      // Try to get a larger sample to estimate the actual data size
+      try {
+        const sampleRange = await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='A1:Z100')`).get();
+        const actualDataRows = sampleRange.values ? sampleRange.values.filter((row, index) => 
+          index > 0 && row.some(cell => cell !== null && cell !== undefined && cell !== '')
+        ).length : 0;
+        
+        excelLog.clearing(`Data sample analysis`, {
+          sampleRows: 100,
+          actualDataRows: actualDataRows,
+          estimatedDataSize: actualDataRows < 100 ? actualDataRows : 'large'
+        });
+        
+        // If we have less than 100 rows of actual data, adjust our clearing strategy
+        if (actualDataRows < 100) {
+          const adjustedMaxClearedRows = Math.min(actualDataRows + 10, 1000); // Clear only what we need + buffer
+          excelLog.clearing(`Adjusting clearing strategy for small dataset`, {
+            originalMaxRows: maxClearedRows,
+            adjustedMaxRows: adjustedMaxClearedRows,
+            actualDataRows: actualDataRows
+          });
+          maxClearedRows = adjustedMaxClearedRows;
+        }
+      } catch (sampleError) {
+        excelLog.warn(`Could not analyze data sample, using default clearing strategy`, {
+          error: sampleError.message
+        });
+      }
+
       // Use very small chunks to avoid payload size limits
       const clearChunkSize = 10; // Very small chunks
       let clearedRows = 0;
@@ -332,14 +370,18 @@ class ExcelService {
       const maxFailures = 3;
       let chunkCount = 0;
       let payloadLimitHits = 0;
+      const maxChunks = 1000; // Maximum chunks to clear (10,000 rows)
+      let maxClearedRows = 10000; // Maximum rows to clear (will be adjusted based on data analysis)
 
       excelLog.clearing(`Starting chunked clearing process`, {
         clearChunkSize: clearChunkSize,
         maxFailures: maxFailures,
+        maxChunks: maxChunks,
+        maxClearedRows: maxClearedRows,
         startRow: currentRow
       });
 
-      while (hasMoreData && consecutiveFailures < maxFailures) {
+      while (hasMoreData && consecutiveFailures < maxFailures && chunkCount < maxChunks && clearedRows < maxClearedRows) {
         chunkCount++;
         const chunkStartTime = Date.now();
         
@@ -353,7 +395,9 @@ class ExcelService {
             startRow: currentRow,
             endRow: endRow,
             range: clearRange,
-            chunkSize: clearChunkSize
+            chunkSize: clearChunkSize,
+            totalClearedRows: clearedRows,
+            remainingChunks: maxChunks - chunkCount
           });
           
           await this.client.api(`/sites/${siteId}/drive/items/${this.workbookId}/workbook/worksheets/${this.worksheetName}/range(address='${clearRange}')/clear`);
@@ -367,7 +411,8 @@ class ExcelService {
             startRow: currentRow,
             endRow: endRow,
             duration: `${chunkDuration}ms`,
-            totalClearedRows: clearedRows
+            totalClearedRows: clearedRows,
+            remainingRows: maxClearedRows - clearedRows
           });
           
           currentRow += clearChunkSize;
@@ -407,6 +452,21 @@ class ExcelService {
             }
           }
         }
+      }
+
+      // Log the reason for stopping
+      if (chunkCount >= maxChunks) {
+        excelLog.warn(`Stopped clearing due to maximum chunks reached`, {
+          chunkCount: chunkCount,
+          maxChunks: maxChunks,
+          totalClearedRows: clearedRows
+        });
+      } else if (clearedRows >= maxClearedRows) {
+        excelLog.warn(`Stopped clearing due to maximum rows reached`, {
+          chunkCount: chunkCount,
+          totalClearedRows: clearedRows,
+          maxClearedRows: maxClearedRows
+        });
       }
 
       const totalDuration = Date.now() - startTime;
