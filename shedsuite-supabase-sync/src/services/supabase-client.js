@@ -198,6 +198,32 @@ class SupabaseClient {
           totalProcessed: orders.length,
           sampleReturnedData: data.length > 0 ? JSON.stringify(data[0], null, 2) : 'none'
         });
+        
+        // Log detailed upsert results
+        if (data.length > 0) {
+          console.log('🔧 SupabaseClient.upsertCustomerOrders() - Upsert result details:', {
+            totalRecords: orders.length,
+            recordsReturned: data.length,
+            firstUpsertedRecord: {
+              id: data[0].id,
+              customerName: data[0].customer_name,
+              orderNumber: data[0].order_number,
+              status: data[0].status,
+              totalAmount: data[0].total_amount_dollar_amount,
+              syncTimestamp: data[0].sync_timestamp
+            }
+          });
+        }
+        
+        // Log summary of what was upserted (production scale)
+        const firstFewUpsertedIds = data.slice(0, 5).map(record => record.id);
+        const lastFewUpsertedIds = data.slice(-5).map(record => record.id);
+        console.log('🔧 SupabaseClient.upsertCustomerOrders() - Upserted record ID range:', {
+          totalUpserted: data.length,
+          first5Ids: firstFewUpsertedIds,
+          last5Ids: lastFewUpsertedIds,
+          idRange: data.length > 0 ? `${data[0].id} to ${data[data.length - 1].id}` : 'none'
+        });
       }
 
       dbLogger.info('Customer orders upserted successfully', {

@@ -68,6 +68,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
 SYNC_INTERVAL_MINUTES=15
 BATCH_SIZE=100
 ENABLE_REAL_TIME_SYNC=true
+ENABLE_INITIAL_TEST_SYNC=false
 ```
 
 ### 3. Database Setup
@@ -108,6 +109,22 @@ The project includes `railway.json` with optimized settings for Railway deployme
 - **Automatic Health Checks**: Monitors service health every 30 seconds
 - **Restart Policy**: Automatically restarts on failure
 - **Production Optimizations**: Pre-configured for production environments
+- **Continuous Sync**: Runs every 15 minutes without initial test sync
+
+### Production Deployment
+
+For production deployment without test sync, use the provided script:
+
+```bash
+# Deploy with production settings
+./scripts/deploy-production.sh
+```
+
+This script:
+- Sets `NODE_ENV=production`
+- Disables initial test sync (`ENABLE_INITIAL_TEST_SYNC=false`)
+- Skips connection tests for faster startup (`SKIP_CONNECTION_TESTS=true`)
+- Deploys to Railway with optimized settings
 
 ### Environment Variables for Railway
 

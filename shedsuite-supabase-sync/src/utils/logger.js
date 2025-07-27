@@ -53,12 +53,10 @@ const logger = winston.createLogger({
   ]
 });
 
-// Add console transport for development
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: consoleFormat
-  }));
-}
+// Add console transport for all environments (needed for Railway logs)
+logger.add(new winston.transports.Console({
+  format: consoleFormat
+}));
 
 // Request logging middleware
 const requestLogger = (req, res, next) => {

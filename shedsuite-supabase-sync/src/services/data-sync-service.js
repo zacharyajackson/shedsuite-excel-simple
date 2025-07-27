@@ -75,9 +75,13 @@ class DataSyncService {
 
       const totalInitDuration = Date.now() - initStartTime;
       console.log('🔧 DataSyncService.initialize() - Initialization completed successfully');
+      console.log('🔧 DataSyncService.initialize() - Service is ready for continuous operation');
       syncLogger.info('✅ Data sync service initialized successfully', { 
         timestamp: new Date().toISOString(),
-        totalDuration: `${totalInitDuration}ms`
+        totalDuration: `${totalInitDuration}ms`,
+        syncInterval: this.syncInterval,
+        batchSize: this.batchSize,
+        enableRealTimeSync: process.env.ENABLE_REAL_TIME_SYNC === 'true'
       });
     } catch (error) {
       console.log('🔧 DataSyncService.initialize() - Error during initialization:', error.message);
@@ -148,10 +152,12 @@ class DataSyncService {
     const now = new Date();
     const nextRun = new Date(now.getTime() + (this.syncInterval * 60 * 1000));
     console.log('🔧 startScheduledSync() - Next run time:', nextRun.toISOString());
+    console.log('🔧 startScheduledSync() - Sync will run every', this.syncInterval, 'minutes');
     syncLogger.info('⏰ Next scheduled sync will run at', {
       timestamp: new Date().toISOString(),
       nextRunTime: nextRun.toISOString(),
-      minutesFromNow: this.syncInterval
+      minutesFromNow: this.syncInterval,
+      cronExpression: cronExpression
     });
     
     console.log('🔧 startScheduledSync() - About to create cron job');
@@ -196,32 +202,88 @@ class DataSyncService {
       timezone: 'UTC'
     });
 
+    // Verify cron job was created successfully
+    if (!this.cronJob) {
+      throw new Error('Failed to create cron job');
+    }
+    console.log('🔧 startScheduledSync() - Cron job object created:', typeof this.cronJob);
+    console.log('🔧 startScheduledSync() - Cron job running status:', this.cronJob.running);
+
+    // Add a heartbeat log every 30 seconds for debugging (more frequent in production to catch hanging issues)
+    const heartbeatInterval = process.env.NODE_ENV === 'production' ? 30 * 1000 : 5 * 60 * 1000; // 30 sec in prod, 5 min in dev
+    setInterval(() => {
+      const now = new Date();
+      const nextSync = new Date(now.getTime() + (this.syncInterval * 60 * 1000));
+      console.log('💓 Service heartbeat - Next sync scheduled for:', nextSync.toISOString());
+      syncLogger.info('💓 Service heartbeat', {
+        timestamp: now.toISOString(),
+        nextSyncTime: nextSync.toISOString(),
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage()
+      });
+    }, heartbeatInterval);
+
+    // Send immediate heartbeat to confirm service is alive
+    console.log('💓 Service heartbeat - Initial heartbeat sent');
+    syncLogger.info('💓 Service heartbeat - Initial heartbeat sent', {
+      timestamp: new Date().toISOString(),
+      nextSyncTime: nextRun.toISOString(),
+      uptime: process.uptime(),
+      memoryUsage: process.memoryUsage()
+    });
+
     console.log('🔧 startScheduledSync() - Cron job created successfully');
+    console.log('🔧 startScheduledSync() - Cron job is active and waiting for next trigger');
     const setupDuration = Date.now() - setupStartTime;
     syncLogger.info('✅ Scheduled sync started', {
       timestamp: new Date().toISOString(),
       setupDuration: `${setupDuration}ms`,
       cronExpression,
-      intervalMinutes: this.syncInterval
+      intervalMinutes: this.syncInterval,
+      nextRunTime: nextRun.toISOString()
     });
     console.log('🔧 startScheduledSync() - Scheduled sync setup completed');
     
-    // Test the cron job immediately to verify it works
-    console.log('🔧 startScheduledSync() - Testing cron job immediately...');
-    setTimeout(async () => {
-      try {
-        console.log('🔧 startScheduledSync() - Triggering test sync...');
-        await this.performSync();
-        console.log('🔧 startScheduledSync() - Test sync completed successfully');
-      } catch (error) {
-        console.log('🔧 startScheduledSync() - Test sync failed:', error.message);
-        syncLogger.error('Initial test sync failed', { 
-          timestamp: new Date().toISOString(),
-          error: error.message 
-        });
-        // Don't throw the error to prevent application shutdown
-      }
-    }, 5000); // Test after 5 seconds
+    // Optional: Test the cron job immediately to verify it works (temporarily enabled for debugging)
+    if (process.env.NODE_ENV === 'development' || process.env.ENABLE_INITIAL_TEST_SYNC === 'true' || true) {
+      console.log('🔧 startScheduledSync() - Testing cron job immediately...');
+      setTimeout(async () => {
+        try {
+          console.log('🔧 startScheduledSync() - Triggering test sync...');
+          await this.performSync();
+          console.log('🔧 startScheduledSync() - Test sync completed successfully');
+        } catch (error) {
+          console.log('🔧 startScheduledSync() - Test sync failed:', error.message);
+          syncLogger.error('Initial test sync failed', { 
+            timestamp: new Date().toISOString(),
+            error: error.message 
+          });
+          // Don't throw the error to prevent application shutdown
+        }
+      }, 5000); // Test after 5 seconds
+    } else {
+      console.log('🔧 startScheduledSync() - Skipping initial test sync (production mode)');
+      console.log('🔧 startScheduledSync() - Current time:', new Date().toISOString());
+      console.log('🔧 startScheduledSync() - First sync will occur at:', nextRun.toISOString());
+      syncLogger.info('⏭️ Skipping initial test sync (production mode)', { 
+        timestamp: new Date().toISOString(),
+        nodeEnv: process.env.NODE_ENV,
+        firstSyncTime: nextRun.toISOString()
+      });
+      
+      // Test the cron job immediately to verify it works (but don't run full sync)
+      console.log('🔧 startScheduledSync() - Testing cron job functionality...');
+      setTimeout(() => {
+        console.log('🔧 startScheduledSync() - Testing cron job trigger...');
+        if (this.cronJob && typeof this.cronJob.fireOnTick === 'function') {
+          console.log('🔧 startScheduledSync() - Manually triggering cron job to test...');
+          this.cronJob.fireOnTick();
+          console.log('🔧 startScheduledSync() - Cron job test trigger completed');
+        } else {
+          console.log('🔧 startScheduledSync() - ERROR - Cron job not properly initialized');
+        }
+      }, 3000);
+    }
   }
 
   // Stop scheduled sync
@@ -268,6 +330,12 @@ class DataSyncService {
       const rawRecords = await shedsuiteAPI.fetchAllRecords(filters);
       console.log('🔧 performSync() - Raw records fetched:', rawRecords ? rawRecords.length : 'null');
       
+      // Log operation scale
+      if (rawRecords && rawRecords.length > 0) {
+        const scale = rawRecords.length < 100 ? 'small' : rawRecords.length < 1000 ? 'medium' : 'large';
+        console.log(`🔧 performSync() - Operation scale: ${scale} (${rawRecords.length} records)`);
+      }
+      
       // Log sample of raw records to see actual data
       if (rawRecords && rawRecords.length > 0) {
         console.log('🔧 performSync() - Sample raw record:', JSON.stringify(rawRecords[0], null, 2));
@@ -276,6 +344,27 @@ class DataSyncService {
           firstRecordId: rawRecords[0]?.id || 'unknown',
           lastRecordId: rawRecords[rawRecords.length - 1]?.id || 'unknown',
           recordKeys: Object.keys(rawRecords[0] || {})
+        });
+        
+        // Log record ID ranges for better tracking in production
+        const firstFewIds = rawRecords.slice(0, 5).map(record => record.id);
+        const lastFewIds = rawRecords.slice(-5).map(record => record.id);
+        console.log('🔧 performSync() - Record ID range:', {
+          totalRecords: rawRecords.length,
+          first5Ids: firstFewIds,
+          last5Ids: lastFewIds,
+          idRange: `${rawRecords[0]?.id} to ${rawRecords[rawRecords.length - 1]?.id}`
+        });
+        
+        // Log key data points from first record
+        const firstRecord = rawRecords[0];
+        console.log('🔧 performSync() - First record details:', {
+          id: firstRecord.id,
+          customerName: firstRecord.customerName,
+          orderNumber: firstRecord.orderNumber,
+          status: firstRecord.status,
+          totalAmount: firstRecord.totalAmountDollarAmount,
+          dateOrdered: firstRecord.dateOrdered
         });
       }
       
@@ -334,11 +423,28 @@ class DataSyncService {
       await this.updateSyncStats(startTime, syncResult.totalProcessed, true);
 
       console.log('🔧 performSync() - Sync completed successfully');
+      const recordsPerSecond = rawRecords ? Math.round((rawRecords.length / (duration / 1000)) * 100) / 100 : 0;
+      console.log('🔧 performSync() - FINAL SYNC SUMMARY:', {
+        syncId: syncId,
+        duration: `${duration}ms`,
+        totalRecordsFromShedSuite: rawRecords ? rawRecords.length : 0,
+        recordsTransformed: transformationResult.transformed.length,
+        transformationErrors: transformationResult.errors.length,
+        recordsUpsertedToSupabase: syncResult.totalProcessed,
+        newRecordsInserted: syncResult.inserted,
+        existingRecordsUpdated: syncResult.totalProcessed - syncResult.inserted,
+        recordsPerSecond: recordsPerSecond,
+        syncTimestamp: new Date().toISOString()
+      });
+      
       syncLogger.info('Sync completed successfully', {
         syncId,
         duration: `${duration}ms`,
         recordsProcessed: syncResult.totalProcessed,
-        recordsInserted: syncResult.inserted
+        recordsInserted: syncResult.inserted,
+        totalRecordsFromShedSuite: rawRecords ? rawRecords.length : 0,
+        transformationErrors: transformationResult.errors.length,
+        existingRecordsUpdated: syncResult.totalProcessed - syncResult.inserted
       });
 
       return {
@@ -419,12 +525,18 @@ class DataSyncService {
         const batch = batches[i];
         const batchNumber = i + 1;
         const totalBatches = batches.length;
+        const progressPercent = ((batchNumber / totalBatches) * 100).toFixed(1);
 
-        console.log(`🔧 syncToSupabase() - Processing batch ${batchNumber}/${totalBatches} with ${batch.length} records`);
+        console.log(`🔧 syncToSupabase() - Processing batch ${batchNumber}/${totalBatches} (${progressPercent}%) with ${batch.length} records`);
         
-        // Log sample record from this batch
+        // Log batch summary for production scale
         if (batch.length > 0) {
-          console.log(`🔧 syncToSupabase() - Sample record from batch ${batchNumber}:`, JSON.stringify(batch[0], null, 2));
+          const batchIds = batch.map(record => record.id);
+          console.log(`🔧 syncToSupabase() - Batch ${batchNumber} summary:`, {
+            batchSize: batch.length,
+            recordIds: batchIds.length <= 10 ? batchIds : `${batchIds.slice(0, 5).join(', ')} ... ${batchIds.slice(-5).join(', ')}`,
+            idRange: `${batchIds[0]} to ${batchIds[batchIds.length - 1]}`
+          });
         }
 
         try {
@@ -467,7 +579,9 @@ class DataSyncService {
         totalProcessed,
         totalInserted,
         batchesProcessed: batches.length,
-        duplicatesInSupabase: totalProcessed - totalInserted
+        duplicatesInSupabase: totalProcessed - totalInserted,
+        averageBatchSize: Math.round(totalProcessed / batches.length),
+        successRate: `${((totalInserted / totalProcessed) * 100).toFixed(1)}%`
       });
 
       syncLogger.info('Supabase sync completed', {
