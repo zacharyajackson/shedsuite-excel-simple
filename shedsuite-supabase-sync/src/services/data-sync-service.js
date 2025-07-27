@@ -1,4 +1,4 @@
-const cron = require('node-cron');
+// Removed cron dependency - using simple setTimeout for reliability
 const { syncLogger } = require('../utils/logger');
 const shedsuiteAPI = require('./shedsuite-api');
 const supabaseClient = require('./supabase-client');
@@ -16,7 +16,8 @@ class DataSyncService {
       lastSyncDuration: 0,
       averageSyncDuration: 0
     };
-    this.cronJob = null;
+    this.syncTimer = null;
+    this.heartbeatTimer = null;
     this.syncInterval = parseInt(process.env.SYNC_INTERVAL_MINUTES) || 15;
     this.batchSize = parseInt(process.env.BATCH_SIZE) || 100;
     this.maxRetries = parseInt(process.env.MAX_SYNC_RETRIES) || 5;
@@ -133,97 +134,57 @@ class DataSyncService {
     }
   }
 
-  // Start scheduled sync
+  // Start continuous sync (replacing cron-based approach)
   startScheduledSync() {
-    console.log('🔧 startScheduledSync() - Starting scheduled sync setup');
+    console.log('🔧 startScheduledSync() - Starting continuous sync service');
     const setupStartTime = Date.now();
-    const cronExpression = `*/${this.syncInterval} * * * *`;
     
-    console.log('🔧 startScheduledSync() - Cron expression:', cronExpression);
+    if (this.syncTimer) {
+      console.log('🔧 startScheduledSync() - Continuous sync already running');
+      return;
+    }
+    
     console.log('🔧 startScheduledSync() - Sync interval:', this.syncInterval, 'minutes');
     
-    syncLogger.info('📅 Setting up scheduled sync', {
+    syncLogger.info('📅 Setting up continuous sync', {
       timestamp: new Date().toISOString(),
-      cronExpression,
       intervalMinutes: this.syncInterval
     });
     
-    // Log when the next sync will run
+    // Calculate next sync time
     const now = new Date();
     const nextRun = new Date(now.getTime() + (this.syncInterval * 60 * 1000));
-    console.log('🔧 startScheduledSync() - Next run time:', nextRun.toISOString());
+    console.log('🔧 startScheduledSync() - Next sync will run at:', nextRun.toISOString());
     console.log('🔧 startScheduledSync() - Sync will run every', this.syncInterval, 'minutes');
-    syncLogger.info('⏰ Next scheduled sync will run at', {
+    
+    syncLogger.info('⏰ Continuous sync service starting', {
       timestamp: new Date().toISOString(),
       nextRunTime: nextRun.toISOString(),
-      minutesFromNow: this.syncInterval,
-      cronExpression: cronExpression
-    });
-    
-    console.log('🔧 startScheduledSync() - About to create cron job');
-    console.log('🔧 startScheduledSync() - Validating cron expression:', cronExpression);
-    
-    // Validate the cron expression
-    if (!cron.validate(cronExpression)) {
-      console.error('🔧 startScheduledSync() - Invalid cron expression:', cronExpression);
-      throw new Error(`Invalid cron expression: ${cronExpression}`);
-    }
-    console.log('🔧 startScheduledSync() - Cron expression is valid');
-    
-    this.cronJob = cron.schedule(cronExpression, async () => {
-      console.log('🔧 CRON JOB TRIGGERED! - Starting scheduled sync at:', new Date().toISOString());
-      console.log('🔧 startScheduledSync() - Cron job triggered!');
-      const syncStartTime = Date.now();
-      try {
-        console.log('🔧 startScheduledSync() - About to call performSync()');
-        syncLogger.info('🔄 Scheduled sync triggered', { timestamp: new Date().toISOString() });
-        await this.performSync();
-        console.log('🔧 startScheduledSync() - performSync() completed successfully');
-        const syncDuration = Date.now() - syncStartTime;
-        syncLogger.info('✅ Scheduled sync completed', { 
-          timestamp: new Date().toISOString(),
-          duration: `${syncDuration}ms`
-        });
-        console.log('🔧 startScheduledSync() - Scheduled sync completed successfully');
-      } catch (error) {
-        console.log('🔧 startScheduledSync() - performSync() failed with error:', error.message);
-        const syncDuration = Date.now() - syncStartTime;
-        syncLogger.error('❌ Scheduled sync failed', { 
-          timestamp: new Date().toISOString(),
-          duration: `${syncDuration}ms`,
-          error: error.message,
-          stack: error.stack
-        });
-        console.log('🔧 startScheduledSync() - Scheduled sync failed:', error.message);
-        // Don't throw the error to prevent cron job from stopping
-      }
-    }, {
-      scheduled: true,
-      timezone: 'UTC'
+      intervalMinutes: this.syncInterval
     });
 
-    // Verify cron job was created successfully
-    if (!this.cronJob) {
-      throw new Error('Failed to create cron job');
-    }
-    console.log('🔧 startScheduledSync() - Cron job object created:', typeof this.cronJob);
-    console.log('🔧 startScheduledSync() - Cron job running status:', this.cronJob.running);
+    // Start the continuous sync loop
+    this.startContinuousLoop();
 
-    // Add a heartbeat log every 30 seconds for debugging (more frequent in production to catch hanging issues)
-    const heartbeatInterval = process.env.NODE_ENV === 'production' ? 30 * 1000 : 5 * 60 * 1000; // 30 sec in prod, 5 min in dev
-    setInterval(() => {
+    // Add a heartbeat log every 30 seconds for debugging
+    const heartbeatInterval = process.env.NODE_ENV === 'production' ? 30 * 1000 : 5 * 60 * 1000;
+    this.heartbeatTimer = setInterval(() => {
       const now = new Date();
-      const nextSync = new Date(now.getTime() + (this.syncInterval * 60 * 1000));
+      const nextSync = new Date(this.lastSyncTime ? 
+        new Date(this.lastSyncTime).getTime() + (this.syncInterval * 60 * 1000) :
+        now.getTime() + (this.syncInterval * 60 * 1000)
+      );
       console.log('💓 Service heartbeat - Next sync scheduled for:', nextSync.toISOString());
       syncLogger.info('💓 Service heartbeat', {
         timestamp: now.toISOString(),
         nextSyncTime: nextSync.toISOString(),
         uptime: process.uptime(),
-        memoryUsage: process.memoryUsage()
+        memoryUsage: process.memoryUsage(),
+        lastSyncTime: this.lastSyncTime
       });
     }, heartbeatInterval);
 
-    // Send immediate heartbeat to confirm service is alive
+    // Send immediate heartbeat
     console.log('💓 Service heartbeat - Initial heartbeat sent');
     syncLogger.info('💓 Service heartbeat - Initial heartbeat sent', {
       timestamp: new Date().toISOString(),
@@ -232,67 +193,80 @@ class DataSyncService {
       memoryUsage: process.memoryUsage()
     });
 
-    console.log('🔧 startScheduledSync() - Cron job created successfully');
-    console.log('🔧 startScheduledSync() - Cron job is active and waiting for next trigger');
     const setupDuration = Date.now() - setupStartTime;
-    syncLogger.info('✅ Scheduled sync started', {
+    console.log('🔧 startScheduledSync() - Continuous sync service started successfully');
+    syncLogger.info('✅ Continuous sync service started', {
       timestamp: new Date().toISOString(),
       setupDuration: `${setupDuration}ms`,
-      cronExpression,
       intervalMinutes: this.syncInterval,
       nextRunTime: nextRun.toISOString()
     });
-    console.log('🔧 startScheduledSync() - Scheduled sync setup completed');
-    
-    // Optional: Test the cron job immediately to verify it works (temporarily enabled for debugging)
-    if (process.env.NODE_ENV === 'development' || process.env.ENABLE_INITIAL_TEST_SYNC === 'true' || true) {
-      console.log('🔧 startScheduledSync() - Testing cron job immediately...');
-      setTimeout(async () => {
-        try {
-          console.log('🔧 startScheduledSync() - Triggering test sync...');
-          await this.performSync();
-          console.log('🔧 startScheduledSync() - Test sync completed successfully');
-        } catch (error) {
-          console.log('🔧 startScheduledSync() - Test sync failed:', error.message);
-          syncLogger.error('Initial test sync failed', { 
-            timestamp: new Date().toISOString(),
-            error: error.message 
-          });
-          // Don't throw the error to prevent application shutdown
-        }
-      }, 5000); // Test after 5 seconds
-    } else {
-      console.log('🔧 startScheduledSync() - Skipping initial test sync (production mode)');
-      console.log('🔧 startScheduledSync() - Current time:', new Date().toISOString());
-      console.log('🔧 startScheduledSync() - First sync will occur at:', nextRun.toISOString());
-      syncLogger.info('⏭️ Skipping initial test sync (production mode)', { 
-        timestamp: new Date().toISOString(),
-        nodeEnv: process.env.NODE_ENV,
-        firstSyncTime: nextRun.toISOString()
-      });
-      
-      // Test the cron job immediately to verify it works (but don't run full sync)
-      console.log('🔧 startScheduledSync() - Testing cron job functionality...');
-      setTimeout(() => {
-        console.log('🔧 startScheduledSync() - Testing cron job trigger...');
-        if (this.cronJob && typeof this.cronJob.fireOnTick === 'function') {
-          console.log('🔧 startScheduledSync() - Manually triggering cron job to test...');
-          this.cronJob.fireOnTick();
-          console.log('🔧 startScheduledSync() - Cron job test trigger completed');
-        } else {
-          console.log('🔧 startScheduledSync() - ERROR - Cron job not properly initialized');
-        }
-      }, 3000);
-    }
   }
 
-  // Stop scheduled sync
+  startContinuousLoop() {
+    console.log('🔄 Starting continuous sync loop...');
+    
+    const runSync = async () => {
+      try {
+        console.log('🔄 CONTINUOUS SYNC TRIGGERED! - Starting sync at:', new Date().toISOString());
+        const syncStartTime = Date.now();
+        
+        syncLogger.info('🔄 Continuous sync triggered', { 
+          timestamp: new Date().toISOString() 
+        });
+        
+        await this.performSync();
+        
+        const syncDuration = Date.now() - syncStartTime;
+        console.log('✅ Continuous sync completed successfully');
+        syncLogger.info('✅ Continuous sync completed', { 
+          timestamp: new Date().toISOString(),
+          duration: `${syncDuration}ms`
+        });
+        
+      } catch (error) {
+        const syncDuration = Date.now() - syncStartTime;
+        console.log('❌ Continuous sync failed:', error.message);
+        syncLogger.error('❌ Continuous sync failed', { 
+          timestamp: new Date().toISOString(),
+          duration: `${syncDuration}ms`,
+          error: error.message,
+          stack: error.stack
+        });
+        // Don't throw the error to prevent the loop from stopping
+      }
+      
+      // Schedule the next sync
+      const nextSyncDelay = this.syncInterval * 60 * 1000; // Convert minutes to milliseconds
+      const nextSyncTime = new Date(Date.now() + nextSyncDelay);
+      console.log(`🕐 Next sync scheduled for: ${nextSyncTime.toISOString()} (in ${this.syncInterval} minutes)`);
+      
+      this.syncTimer = setTimeout(runSync, nextSyncDelay);
+    };
+
+    // Start the first sync immediately (or after a short delay)
+    const initialDelay = process.env.NODE_ENV === 'production' ? 10000 : 5000; // 10 seconds in prod, 5 in dev
+    console.log(`⏱️ First sync will start in ${initialDelay / 1000} seconds...`);
+    
+    this.syncTimer = setTimeout(runSync, initialDelay);
+  }
+
+  // Stop continuous sync
   stopScheduledSync() {
-    if (this.cronJob) {
-      this.cronJob.stop();
-      this.cronJob = null;
-      syncLogger.info('Scheduled sync stopped');
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer);
+      this.syncTimer = null;
+      console.log('🔧 stopScheduledSync() - Continuous sync timer cleared');
     }
+    
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+      console.log('🔧 stopScheduledSync() - Heartbeat timer cleared');
+    }
+    
+    syncLogger.info('Continuous sync stopped');
+    console.log('🔧 stopScheduledSync() - Continuous sync service stopped');
   }
 
   // Perform a complete sync operation

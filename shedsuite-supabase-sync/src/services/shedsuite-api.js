@@ -178,16 +178,22 @@ class ShedSuiteAPI {
     const params = new URLSearchParams();
 
     if (!countOnly) {
-      params.append('page', page.toString());
-      params.append('per_page', this.config.pageSize.toString());
-      params.append('sort_by', this.config.sortBy);
-      params.append('sort_order', this.config.sortOrder);
+      // Use limit and offset for pagination (like the main application)
+      params.append('limit', this.config.pageSize.toString());
+      params.append('offset', ((page - 1) * this.config.pageSize).toString());
+      params.append('sortBy', this.config.sortBy);
+      params.append('sortOrder', this.config.sortOrder);
     }
 
     // Add filters
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {
-        params.append(key, value.toString());
+        // Handle different filter formats like the main application
+        if (key === 'updated_after' && value) {
+          params.append('dateUpdated[gte]', value.toString());
+        } else {
+          params.append(key, value.toString());
+        }
       }
     });
 
@@ -253,11 +259,12 @@ class ShedSuiteAPI {
             hasMore: records.length === this.config.pageSize
           });
 
-          // Check if we have more pages - improved logic to handle edge cases
-          if (records.length < this.config.pageSize) {
-            console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Last page with fewer records than page size. Stopping pagination.`);
+          // Check if we have more pages - continue until we get an empty response
+          if (records.length === 0) {
+            console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - No records returned. Stopping pagination.`);
             hasMorePages = false;
           } else {
+            console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Got ${records.length} records. Continuing to next page.`);
             currentPage++;
           }
 
