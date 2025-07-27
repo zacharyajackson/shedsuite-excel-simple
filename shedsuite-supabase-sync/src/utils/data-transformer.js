@@ -421,9 +421,15 @@ class DataTransformer {
       syncLogger.error('Batch transformation failed', {
         error: error.message,
         recordType,
-        recordCount: records.length
+        recordCount: records.length,
+        stack: error.stack
       });
-      throw error;
+      // Don't throw the error to prevent application shutdown
+      return {
+        transformed: [],
+        errors: [{ error: error.message }],
+        success: false
+      };
     }
   }
 

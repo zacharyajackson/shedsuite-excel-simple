@@ -589,48 +589,59 @@ async function main() {
   const command = args[0] || 'full';
   const interval = args[1] || '5'; // Default 5 minutes
   
-  switch (command) {
-    case 'full':
-      await performFullSync();
-      break;
-    case 'continuous':
-      console.log('🔄 Starting continuous sync mode...');
-      console.log(`⏰ Sync interval: ${interval} minutes`);
-      console.log('Press Ctrl+C to stop');
-      
-      // Run continuous sync at specified interval
-      const intervalMs = parseInt(interval) * 60 * 1000;
-      setInterval(performContinuousSync, intervalMs);
-      
-      // Run initial sync
-      await performContinuousSync();
-      break;
-    case 'once':
-      console.log('🔄 Running single continuous sync...');
-      await performContinuousSync();
-      break;
-    default:
-      console.log('🚀 ShedSuite to Supabase Sync Tool');
-      console.log('=====================================');
-      console.log('');
-      console.log('Usage:');
-      console.log('  node start-sync.js full                    - Perform full sync (all records)');
-      console.log('  node start-sync.js continuous [minutes]    - Start continuous sync (default: 5 min)');
-      console.log('  node start-sync.js once                    - Run single continuous sync');
-      console.log('');
-      console.log('Examples:');
-      console.log('  node start-sync.js full                    - Sync all 97k+ records');
-      console.log('  node start-sync.js continuous              - Continuous sync every 5 minutes');
-      console.log('  node start-sync.js continuous 10           - Continuous sync every 10 minutes');
-      console.log('  node start-sync.js once                    - Single sync of recent changes');
-      console.log('');
-      console.log('Features:');
-      console.log('  ✅ Smart deduplication (no duplicates)');
-      console.log('  ✅ Incremental updates (only changed records)');
-      console.log('  ✅ Timestamp-based sync tracking');
-      console.log('  ✅ Detailed progress logging');
-      console.log('  ✅ Error handling and recovery');
-      break;
+  try {
+    switch (command) {
+      case 'full':
+        await performFullSync();
+        break;
+      case 'continuous':
+        console.log('🔄 Starting continuous sync mode...');
+        console.log(`⏰ Sync interval: ${interval} minutes`);
+        console.log('Press Ctrl+C to stop');
+        
+        // Run continuous sync at specified interval
+        const intervalMs = parseInt(interval) * 60 * 1000;
+        setInterval(async () => {
+          try {
+            await performContinuousSync();
+          } catch (error) {
+            console.error('❌ Error in continuous sync interval:', error.message);
+          }
+        }, intervalMs);
+        
+        // Run initial sync
+        await performContinuousSync();
+        break;
+      case 'once':
+        console.log('🔄 Running single continuous sync...');
+        await performContinuousSync();
+        break;
+      default:
+        console.log('🚀 ShedSuite to Supabase Sync Tool');
+        console.log('=====================================');
+        console.log('');
+        console.log('Usage:');
+        console.log('  node start-sync.js full                    - Perform full sync (all records)');
+        console.log('  node start-sync.js continuous [minutes]    - Start continuous sync (default: 5 min)');
+        console.log('  node start-sync.js once                    - Run single continuous sync');
+        console.log('');
+        console.log('Examples:');
+        console.log('  node start-sync.js full                    - Sync all 97k+ records');
+        console.log('  node start-sync.js continuous              - Continuous sync every 5 minutes');
+        console.log('  node start-sync.js continuous 10           - Continuous sync every 10 minutes');
+        console.log('  node start-sync.js once                    - Single sync of recent changes');
+        console.log('');
+        console.log('Features:');
+        console.log('  ✅ Smart deduplication (no duplicates)');
+        console.log('  ✅ Incremental updates (only changed records)');
+        console.log('  ✅ Timestamp-based sync tracking');
+        console.log('  ✅ Detailed progress logging');
+        console.log('  ✅ Error handling and recovery');
+        break;
+    }
+  } catch (error) {
+    console.error('❌ Application failed:', error.message);
+    process.exit(1);
   }
 }
 

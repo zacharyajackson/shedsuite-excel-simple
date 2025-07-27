@@ -30,7 +30,7 @@ RUN chown -R nodejs:nodejs /app
 USER nodejs
 
 # Expose port (Railway will set the PORT environment variable)
-EXPOSE 3001
+EXPOSE ${PORT:-3001}
 
 # Health check for Railway
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
