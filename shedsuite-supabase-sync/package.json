@@ -6,6 +6,12 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon --no-colors src/index.js",
+    "railway:start": "node src/index.js",
+    "railway:health": "curl -f http://localhost:${PORT:-3001}/health || exit 1",
+    "railway:deploy": "./scripts/deploy-railway.sh",
+    "railway:logs": "./scripts/monitor-logs.sh",
+    "health:check": "./scripts/health-check.sh",
+    "health:monitor": "./scripts/health-check.sh check",
     "test": "NODE_ENV=test jest",
     "test:unit": "NODE_ENV=test jest --testMatch='**/tests/unit/**/*.test.js'",
     "test:integration": "NODE_ENV=test jest --testMatch='**/tests/integration/**/*.test.js'",

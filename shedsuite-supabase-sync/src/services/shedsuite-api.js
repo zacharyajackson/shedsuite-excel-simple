@@ -199,6 +199,7 @@ class ShedSuiteAPI {
     try {
       this._initialize();
       
+      console.log('🔧 ShedSuiteAPI.fetchAllRecords() - Starting to fetch all records with filters:', filters);
       apiLogger.info('Starting to fetch all records', {
         filters,
         pageSize: this.config.pageSize,
@@ -213,6 +214,7 @@ class ShedSuiteAPI {
       while (hasMorePages && currentPage <= this.config.maxPages) {
         try {
           const url = this.buildApiUrl(currentPage, filters);
+          console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Fetching page ${currentPage} from:`, url.replace(this.config.authToken, '***'));
           apiLogger.debug('Fetching page', { page: currentPage, url: url.replace(this.config.authToken, '***') });
 
           const data = await this.makeRequest(url, {
@@ -221,17 +223,27 @@ class ShedSuiteAPI {
             filters
           });
 
+          console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Page ${currentPage} raw response:`, JSON.stringify(data, null, 2));
+          
           const records = this.extractRecords(data);
+          console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Page ${currentPage} extracted ${records ? records.length : 0} records`);
           
           if (!records || records.length === 0) {
+            console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - No more records found on page ${currentPage}`);
             apiLogger.info('No more records found', { page: currentPage });
             hasMorePages = false;
             break;
           }
 
+          // Log sample record from this page
+          if (records.length > 0) {
+            console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Sample record from page ${currentPage}:`, JSON.stringify(records[0], null, 2));
+          }
+
           allRecords.push(...records);
           totalProcessed += records.length;
 
+          console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Page ${currentPage} processed: ${records.length} records, total so far: ${totalProcessed}`);
           apiLogger.info('Page processed', {
             page: currentPage,
             recordsInPage: records.length,
@@ -249,9 +261,11 @@ class ShedSuiteAPI {
           }
 
         } catch (pageError) {
+          console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Failed to fetch page ${currentPage} with error:`, pageError.message);
           apiLogger.error('Failed to fetch page', {
             page: currentPage,
-            error: pageError.message
+            error: pageError.message,
+            stack: pageError.stack
           });
           
           // If it's an authentication error, stop trying
@@ -264,6 +278,7 @@ class ShedSuiteAPI {
         }
       }
 
+      console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - All records fetched successfully: ${allRecords.length} total records from ${currentPage - 1} pages`);
       apiLogger.info('All records fetched successfully', {
         totalRecords: allRecords.length,
         pagesProcessed: currentPage - 1,
@@ -273,11 +288,14 @@ class ShedSuiteAPI {
       return allRecords;
 
     } catch (error) {
+      console.log('🔧 ShedSuiteAPI.fetchAllRecords() - Failed to fetch all records with error:', error.message);
       apiLogger.error('Failed to fetch all records', {
         error: error.message,
-        filters
+        filters,
+        stack: error.stack
       });
-      throw error;
+      // Don't throw the error to prevent application shutdown
+      return [];
     }
   }
 

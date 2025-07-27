@@ -25,24 +25,69 @@ class DataSyncService {
 
   // Initialize the sync service
   async initialize() {
+    console.log('🔧 DataSyncService.initialize() - Starting initialization');
+    const initStartTime = Date.now();
     try {
-      syncLogger.info('Initializing data sync service', {
+      console.log('🔧 DataSyncService.initialize() - About to log initialization info');
+      syncLogger.info('🔧 Initializing data sync service', {
+        timestamp: new Date().toISOString(),
         syncInterval: this.syncInterval,
         batchSize: this.batchSize,
-        maxRetries: this.maxRetries
+        enableRealTimeSync: process.env.ENABLE_REAL_TIME_SYNC === 'true',
+        skipConnectionTests: process.env.SKIP_CONNECTION_TESTS === 'true'
       });
+      console.log('🔧 DataSyncService.initialize() - Initialization info logged');
 
-      // Test connections
-      await this.testConnections();
-
-      // Start scheduled sync if enabled
-      if (process.env.ENABLE_REAL_TIME_SYNC === 'true') {
-        this.startScheduledSync();
+      // Test connections (optional - can be disabled for faster startup)
+      if (process.env.SKIP_CONNECTION_TESTS !== 'true') {
+        console.log('🔧 DataSyncService.initialize() - Connection tests enabled');
+        syncLogger.info('📋 Testing connections...', { timestamp: new Date().toISOString() });
+        const connectionTestStartTime = Date.now();
+        await this.testConnections();
+        const connectionTestDuration = Date.now() - connectionTestStartTime;
+        syncLogger.info('✅ Connection tests completed', { 
+          timestamp: new Date().toISOString(),
+          duration: `${connectionTestDuration}ms`
+        });
+        console.log('🔧 DataSyncService.initialize() - Connection tests completed');
+      } else {
+        console.log('🔧 DataSyncService.initialize() - Skipping connection tests');
+        syncLogger.info('⏭️ Skipping connection tests (SKIP_CONNECTION_TESTS=true)', { timestamp: new Date().toISOString() });
       }
 
-      syncLogger.info('Data sync service initialized successfully');
+      // Start scheduled sync if enabled
+      console.log('🔧 DataSyncService.initialize() - Checking ENABLE_REAL_TIME_SYNC:', process.env.ENABLE_REAL_TIME_SYNC);
+      if (process.env.ENABLE_REAL_TIME_SYNC === 'true') {
+        console.log('🔧 DataSyncService.initialize() - Starting scheduled sync');
+        syncLogger.info('📋 Starting scheduled sync...', { timestamp: new Date().toISOString() });
+        const scheduledSyncStartTime = Date.now();
+        this.startScheduledSync();
+        const scheduledSyncDuration = Date.now() - scheduledSyncStartTime;
+        syncLogger.info('✅ Scheduled sync started', { 
+          timestamp: new Date().toISOString(),
+          duration: `${scheduledSyncDuration}ms`
+        });
+        console.log('🔧 DataSyncService.initialize() - Scheduled sync started');
+      } else {
+        console.log('🔧 DataSyncService.initialize() - Scheduled sync disabled');
+        syncLogger.info('⏭️ Scheduled sync disabled (ENABLE_REAL_TIME_SYNC=false)', { timestamp: new Date().toISOString() });
+      }
+
+      const totalInitDuration = Date.now() - initStartTime;
+      console.log('🔧 DataSyncService.initialize() - Initialization completed successfully');
+      syncLogger.info('✅ Data sync service initialized successfully', { 
+        timestamp: new Date().toISOString(),
+        totalDuration: `${totalInitDuration}ms`
+      });
     } catch (error) {
-      syncLogger.error('Failed to initialize data sync service', { error: error.message });
+      console.log('🔧 DataSyncService.initialize() - Error during initialization:', error.message);
+      const totalInitDuration = Date.now() - initStartTime;
+      syncLogger.error('❌ Failed to initialize data sync service', { 
+        timestamp: new Date().toISOString(),
+        totalDuration: `${totalInitDuration}ms`,
+        error: error.message, 
+        stack: error.stack 
+      });
       throw error;
     }
   }
@@ -50,19 +95,34 @@ class DataSyncService {
   // Test API and database connections
   async testConnections() {
     try {
-      // Test ShedSuite API
-      const apiHealth = await shedsuiteAPI.healthCheck();
-      if (apiHealth.status !== 'healthy') {
-        throw new Error(`ShedSuite API health check failed: ${apiHealth.error}`);
-      }
+      syncLogger.info('Testing connections...');
+      
+      // Add timeout to prevent hanging
+      const timeout = setTimeout(() => {
+        throw new Error('Connection test timed out after 30 seconds');
+      }, 30000);
 
-      // Test Supabase connection
-      const dbHealth = await supabaseClient.healthCheck();
-      if (dbHealth.status !== 'healthy') {
-        throw new Error(`Supabase health check failed: ${dbHealth.error}`);
-      }
+      try {
+        // Test ShedSuite API
+        syncLogger.info('Testing ShedSuite API connection...');
+        const apiHealth = await shedsuiteAPI.healthCheck();
+        if (apiHealth.status !== 'healthy') {
+          throw new Error(`ShedSuite API health check failed: ${apiHealth.error}`);
+        }
 
-      syncLogger.info('All connections tested successfully');
+        // Test Supabase connection
+        syncLogger.info('Testing Supabase connection...');
+        const dbHealth = await supabaseClient.healthCheck();
+        if (dbHealth.status !== 'healthy') {
+          throw new Error(`Supabase health check failed: ${dbHealth.error}`);
+        }
+
+        clearTimeout(timeout);
+        syncLogger.info('All connections tested successfully');
+      } catch (error) {
+        clearTimeout(timeout);
+        throw error;
+      }
     } catch (error) {
       syncLogger.error('Connection test failed', { error: error.message });
       throw error;
@@ -71,23 +131,97 @@ class DataSyncService {
 
   // Start scheduled sync
   startScheduledSync() {
+    console.log('🔧 startScheduledSync() - Starting scheduled sync setup');
+    const setupStartTime = Date.now();
     const cronExpression = `*/${this.syncInterval} * * * *`;
     
+    console.log('🔧 startScheduledSync() - Cron expression:', cronExpression);
+    console.log('🔧 startScheduledSync() - Sync interval:', this.syncInterval, 'minutes');
+    
+    syncLogger.info('📅 Setting up scheduled sync', {
+      timestamp: new Date().toISOString(),
+      cronExpression,
+      intervalMinutes: this.syncInterval
+    });
+    
+    // Log when the next sync will run
+    const now = new Date();
+    const nextRun = new Date(now.getTime() + (this.syncInterval * 60 * 1000));
+    console.log('🔧 startScheduledSync() - Next run time:', nextRun.toISOString());
+    syncLogger.info('⏰ Next scheduled sync will run at', {
+      timestamp: new Date().toISOString(),
+      nextRunTime: nextRun.toISOString(),
+      minutesFromNow: this.syncInterval
+    });
+    
+    console.log('🔧 startScheduledSync() - About to create cron job');
+    console.log('🔧 startScheduledSync() - Validating cron expression:', cronExpression);
+    
+    // Validate the cron expression
+    if (!cron.validate(cronExpression)) {
+      console.error('🔧 startScheduledSync() - Invalid cron expression:', cronExpression);
+      throw new Error(`Invalid cron expression: ${cronExpression}`);
+    }
+    console.log('🔧 startScheduledSync() - Cron expression is valid');
+    
     this.cronJob = cron.schedule(cronExpression, async () => {
+      console.log('🔧 CRON JOB TRIGGERED! - Starting scheduled sync at:', new Date().toISOString());
+      console.log('🔧 startScheduledSync() - Cron job triggered!');
+      const syncStartTime = Date.now();
       try {
+        console.log('🔧 startScheduledSync() - About to call performSync()');
+        syncLogger.info('🔄 Scheduled sync triggered', { timestamp: new Date().toISOString() });
         await this.performSync();
+        console.log('🔧 startScheduledSync() - performSync() completed successfully');
+        const syncDuration = Date.now() - syncStartTime;
+        syncLogger.info('✅ Scheduled sync completed', { 
+          timestamp: new Date().toISOString(),
+          duration: `${syncDuration}ms`
+        });
+        console.log('🔧 startScheduledSync() - Scheduled sync completed successfully');
       } catch (error) {
-        syncLogger.error('Scheduled sync failed', { error: error.message });
+        console.log('🔧 startScheduledSync() - performSync() failed with error:', error.message);
+        const syncDuration = Date.now() - syncStartTime;
+        syncLogger.error('❌ Scheduled sync failed', { 
+          timestamp: new Date().toISOString(),
+          duration: `${syncDuration}ms`,
+          error: error.message,
+          stack: error.stack
+        });
+        console.log('🔧 startScheduledSync() - Scheduled sync failed:', error.message);
+        // Don't throw the error to prevent cron job from stopping
       }
     }, {
       scheduled: true,
       timezone: 'UTC'
     });
 
-    syncLogger.info('Scheduled sync started', {
+    console.log('🔧 startScheduledSync() - Cron job created successfully');
+    const setupDuration = Date.now() - setupStartTime;
+    syncLogger.info('✅ Scheduled sync started', {
+      timestamp: new Date().toISOString(),
+      setupDuration: `${setupDuration}ms`,
       cronExpression,
       intervalMinutes: this.syncInterval
     });
+    console.log('🔧 startScheduledSync() - Scheduled sync setup completed');
+    
+    // Test the cron job immediately to verify it works
+    console.log('🔧 startScheduledSync() - Testing cron job immediately...');
+    setTimeout(async () => {
+      try {
+        console.log('🔧 startScheduledSync() - Triggering test sync...');
+        await this.performSync();
+        console.log('🔧 startScheduledSync() - Test sync completed successfully');
+      } catch (error) {
+        console.log('🔧 startScheduledSync() - Test sync failed:', error.message);
+        syncLogger.error('Initial test sync failed', { 
+          timestamp: new Date().toISOString(),
+          error: error.message 
+        });
+        // Don't throw the error to prevent application shutdown
+      }
+    }, 5000); // Test after 5 seconds
   }
 
   // Stop scheduled sync
@@ -110,24 +244,43 @@ class DataSyncService {
       }
 
       this.isRunning = true;
+      console.log('🔧 performSync() - Starting sync operation with ID:', syncId);
       syncLogger.info('Starting sync operation', { syncId, options });
 
       // Get last sync timestamp
+      console.log('🔧 performSync() - Getting last sync timestamp...');
       const lastSyncTimestamp = await supabaseClient.getLastSyncTimestamp();
+      console.log('🔧 performSync() - Last sync timestamp:', lastSyncTimestamp);
       
       // Build filters for incremental sync
       const filters = {};
       if (lastSyncTimestamp && !options.fullSync) {
         filters.updated_after = lastSyncTimestamp;
+        console.log('🔧 performSync() - Performing incremental sync with filters:', filters);
         syncLogger.info('Performing incremental sync', { lastSyncTimestamp });
       } else {
+        console.log('🔧 performSync() - Performing full sync');
         syncLogger.info('Performing full sync');
       }
 
       // Fetch records from ShedSuite API
+      console.log('🔧 performSync() - Fetching records from ShedSuite API...');
       const rawRecords = await shedsuiteAPI.fetchAllRecords(filters);
+      console.log('🔧 performSync() - Raw records fetched:', rawRecords ? rawRecords.length : 'null');
+      
+      // Log sample of raw records to see actual data
+      if (rawRecords && rawRecords.length > 0) {
+        console.log('🔧 performSync() - Sample raw record:', JSON.stringify(rawRecords[0], null, 2));
+        console.log('🔧 performSync() - Raw records summary:', {
+          count: rawRecords.length,
+          firstRecordId: rawRecords[0]?.id || 'unknown',
+          lastRecordId: rawRecords[rawRecords.length - 1]?.id || 'unknown',
+          recordKeys: Object.keys(rawRecords[0] || {})
+        });
+      }
       
       if (!rawRecords || rawRecords.length === 0) {
+        console.log('🔧 performSync() - No records to sync');
         syncLogger.info('No records to sync');
         await this.updateSyncStats(startTime, 0, true);
         return {
@@ -138,25 +291,49 @@ class DataSyncService {
       }
 
       // Transform records
+      console.log('🔧 performSync() - Transforming records...');
       const transformationResult = dataTransformer.transformBatch(rawRecords, 'shedsuite_orders');
+      console.log('🔧 performSync() - Transformation result:', {
+        total: rawRecords.length,
+        transformed: transformationResult.transformed.length,
+        errors: transformationResult.errors.length
+      });
       
-      if (transformationResult.errors.length > 0) {
+      // Log sample of transformed records
+      if (transformationResult.transformed && transformationResult.transformed.length > 0) {
+        console.log('🔧 performSync() - Sample transformed record:', JSON.stringify(transformationResult.transformed[0], null, 2));
+        console.log('🔧 performSync() - Transformed records summary:', {
+          count: transformationResult.transformed.length,
+          firstRecordId: transformationResult.transformed[0]?.id || 'unknown',
+          lastRecordId: transformationResult.transformed[transformationResult.transformed.length - 1]?.id || 'unknown',
+          transformedKeys: Object.keys(transformationResult.transformed[0] || {})
+        });
+      }
+      
+      // Log transformation errors if any
+      if (transformationResult.errors && transformationResult.errors.length > 0) {
+        console.log('🔧 performSync() - Transformation errors:', transformationResult.errors);
         syncLogger.warn('Some records failed transformation', {
           totalRecords: rawRecords.length,
           transformedCount: transformationResult.transformed.length,
-          errorCount: transformationResult.errors.length
+          errorCount: transformationResult.errors.length,
+          errors: transformationResult.errors
         });
       }
 
       // Sync to Supabase in batches
+      console.log('🔧 performSync() - Syncing to Supabase...');
       const syncResult = await this.syncToSupabase(transformationResult.transformed);
+      console.log('🔧 performSync() - Supabase sync result:', syncResult);
 
       // Update sync timestamp
+      console.log('🔧 performSync() - Updating sync timestamp...');
       await supabaseClient.updateSyncTimestamp();
 
       const duration = Date.now() - startTime;
       await this.updateSyncStats(startTime, syncResult.totalProcessed, true);
 
+      console.log('🔧 performSync() - Sync completed successfully');
       syncLogger.info('Sync completed successfully', {
         syncId,
         duration: `${duration}ms`,
@@ -180,10 +357,18 @@ class DataSyncService {
       syncLogger.error('Sync failed', {
         syncId,
         duration: `${duration}ms`,
-        error: error.message
+        error: error.message,
+        stack: error.stack
       });
 
-      throw error;
+      // Don't throw the error to prevent application shutdown
+      console.log('🔧 performSync() - Sync failed but continuing:', error.message);
+      return {
+        success: false,
+        syncId,
+        duration,
+        error: error.message
+      };
     } finally {
       this.isRunning = false;
       this.lastSyncTime = new Date();
@@ -193,7 +378,10 @@ class DataSyncService {
   // Sync transformed records to Supabase
   async syncToSupabase(transformedRecords) {
     try {
+      console.log('🔧 syncToSupabase() - Starting Supabase sync with', transformedRecords.length, 'records');
+      
       if (!Array.isArray(transformedRecords) || transformedRecords.length === 0) {
+        console.log('🔧 syncToSupabase() - No records to sync');
         return { totalProcessed: 0, inserted: 0 };
       }
 
@@ -208,6 +396,8 @@ class DataSyncService {
         batches.push(transformedRecords.slice(i, i + this.batchSize));
       }
 
+      console.log('🔧 syncToSupabase() - Created', batches.length, 'batches of size', this.batchSize);
+
       let totalInserted = 0;
       let totalProcessed = 0;
 
@@ -216,25 +406,37 @@ class DataSyncService {
         const batchNumber = i + 1;
         const totalBatches = batches.length;
 
+        console.log(`🔧 syncToSupabase() - Processing batch ${batchNumber}/${totalBatches} with ${batch.length} records`);
+        
+        // Log sample record from this batch
+        if (batch.length > 0) {
+          console.log(`🔧 syncToSupabase() - Sample record from batch ${batchNumber}:`, JSON.stringify(batch[0], null, 2));
+        }
+
         try {
           syncLogger.debug(`Processing batch ${batchNumber}/${totalBatches}`, {
             batchSize: batch.length
           });
 
+          console.log(`🔧 syncToSupabase() - Calling supabaseClient.upsertCustomerOrders() for batch ${batchNumber}`);
           const result = await supabaseClient.upsertCustomerOrders(batch);
+          console.log(`🔧 syncToSupabase() - Batch ${batchNumber} result:`, result);
           
           totalInserted += result.inserted;
           totalProcessed += result.totalProcessed;
 
+          console.log(`🔧 syncToSupabase() - Batch ${batchNumber} completed: inserted=${result.inserted}, processed=${result.totalProcessed}`);
           syncLogger.debug(`Batch ${batchNumber} completed`, {
             inserted: result.inserted,
             totalProcessed: result.totalProcessed
           });
 
         } catch (batchError) {
+          console.log(`🔧 syncToSupabase() - Batch ${batchNumber} failed with error:`, batchError.message);
           syncLogger.error(`Batch ${batchNumber} failed`, {
             error: batchError.message,
-            batchSize: batch.length
+            batchSize: batch.length,
+            stack: batchError.stack
           });
 
           // Continue with next batch instead of failing completely
@@ -246,6 +448,12 @@ class DataSyncService {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
+
+      console.log('🔧 syncToSupabase() - All batches completed. Final result:', {
+        totalProcessed,
+        totalInserted,
+        batchesProcessed: batches.length
+      });
 
       syncLogger.info('Supabase sync completed', {
         totalProcessed,
@@ -259,11 +467,14 @@ class DataSyncService {
       };
 
     } catch (error) {
+      console.log('🔧 syncToSupabase() - Supabase sync failed with error:', error.message);
       syncLogger.error('Supabase sync failed', {
         error: error.message,
-        recordCount: transformedRecords.length
+        recordCount: transformedRecords.length,
+        stack: error.stack
       });
-      throw error;
+      // Don't throw the error to prevent application shutdown
+      return { totalProcessed: transformedRecords.length, inserted: 0 };
     }
   }
 

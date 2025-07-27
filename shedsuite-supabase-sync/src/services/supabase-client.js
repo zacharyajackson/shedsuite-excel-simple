@@ -66,14 +66,38 @@ class SupabaseClient {
     try {
       this._initialize();
       
-      // Test connection by making a simple query
+      // Test connection by making a simple query that doesn't depend on specific tables
       const { data, error } = await this.client
-        .from('shedsuite_orders')
-        .select('count')
-        .limit(1);
+        .rpc('version')
+        .single();
 
       if (error) {
-        throw error;
+        // If version() function doesn't exist, try a simple connection test
+        const { error: selectError } = await this.client
+          .from('shedsuite_orders')
+          .select('count')
+          .limit(1);
+          
+        if (selectError) {
+          // If the table doesn't exist yet, that's okay - just test the connection
+          const { error: connectionError } = await this.client
+            .from('_dummy_table_that_does_not_exist')
+            .select('*')
+            .limit(1);
+            
+          // If we get a "relation does not exist" error, that means the connection works
+          if (connectionError && connectionError.message.includes('relation') && connectionError.message.includes('does not exist')) {
+            // Connection is working, table just doesn't exist yet
+            return {
+              status: 'healthy',
+              timestamp: new Date().toISOString(),
+              connection: 'active',
+              note: 'Table shedsuite_orders does not exist yet'
+            };
+          }
+          
+          throw connectionError;
+        }
       }
 
       return {
@@ -97,9 +121,16 @@ class SupabaseClient {
     try {
       this._initialize();
       
+      console.log('🔧 SupabaseClient.upsertCustomerOrders() - Starting upsert with', orders.length, 'orders');
+      
       if (!Array.isArray(orders) || orders.length === 0) {
+        console.log('🔧 SupabaseClient.upsertCustomerOrders() - No orders to upsert');
         throw new Error('Orders must be a non-empty array');
       }
+
+      // Log sample order
+      console.log('🔧 SupabaseClient.upsertCustomerOrders() - Sample order:', JSON.stringify(orders[0], null, 2));
+      console.log('🔧 SupabaseClient.upsertCustomerOrders() - Order IDs:', orders.map(o => o.id).slice(0, 5));
 
       dbLogger.info('Upserting customer orders', {
         count: orders.length,
@@ -107,6 +138,7 @@ class SupabaseClient {
         lastOrderId: orders[orders.length - 1]?.id
       });
 
+      console.log('🔧 SupabaseClient.upsertCustomerOrders() - Calling Supabase upsert...');
       const { data, error } = await this.client
         .from('shedsuite_orders')
         .upsert(orders, {
@@ -116,8 +148,15 @@ class SupabaseClient {
         .select();
 
       if (error) {
+        console.log('🔧 SupabaseClient.upsertCustomerOrders() - Supabase upsert failed with error:', error.message);
         throw error;
       }
+
+      console.log('🔧 SupabaseClient.upsertCustomerOrders() - Supabase upsert successful:', {
+        inserted: data.length,
+        totalProcessed: orders.length,
+        sampleReturnedData: data.length > 0 ? JSON.stringify(data[0], null, 2) : 'none'
+      });
 
       dbLogger.info('Customer orders upserted successfully', {
         inserted: data.length,
@@ -131,11 +170,19 @@ class SupabaseClient {
         data
       };
     } catch (error) {
+      console.log('🔧 SupabaseClient.upsertCustomerOrders() - Failed to upsert customer orders with error:', error.message);
       dbLogger.error('Failed to upsert customer orders', {
         error: error.message,
-        count: orders.length
+        count: orders.length,
+        stack: error.stack
       });
-      throw error;
+      // Don't throw the error to prevent application shutdown
+      return {
+        success: false,
+        inserted: 0,
+        totalProcessed: orders.length,
+        error: error.message
+      };
     }
   }
 

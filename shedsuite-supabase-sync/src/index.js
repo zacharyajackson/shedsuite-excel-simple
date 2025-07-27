@@ -1,5 +1,6 @@
 require('dotenv').config();
-console.log('Starting ShedSuite Supabase Sync Service...');
+console.log('🚀 Starting ShedSuite Supabase Sync Service...');
+console.log('📅 Startup timestamp:', new Date().toISOString());
 
 const express = require('express');
 const cors = require('cors');
@@ -23,25 +24,29 @@ const requiredEnvVars = [
   'SUPABASE_SERVICE_ROLE_KEY'
 ];
 
-console.log('Checking environment variables...');
+console.log('🔍 Checking environment variables...');
+
 const missingVars = [];
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
-    console.error(`Missing required environment variable: ${envVar}`);
+    console.error(`❌ Missing required environment variable: ${envVar}`);
     missingVars.push(envVar);
   }
 }
 
 if (missingVars.length > 0) {
-  console.error(`Missing ${missingVars.length} required environment variables: ${missingVars.join(', ')}`);
-  console.warn('Application will start but may have limited functionality');
+  console.error(`❌ Missing ${missingVars.length} required environment variables: ${missingVars.join(', ')}`);
+  console.warn('⚠️ Application will start but may have limited functionality');
 } else {
-  console.log('All required environment variables are present');
+  console.log('✅ All required environment variables are present');
 }
 
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Trust proxy for Railway deployment (fixes rate limiter X-Forwarded-For error)
+app.set('trust proxy', 1);
 
 // Track application startup state
 let isFullyInitialized = false;
@@ -161,78 +166,130 @@ app.use((error, req, res, next) => {
 // Initialize services
 async function startServices() {
   try {
-    logger.info('Initializing services...');
-    
-    // Initialize data sync service
     await dataSyncService.initialize();
-    
-    logger.info('All services initialized successfully');
     isFullyInitialized = true;
-    
-    const startupDuration = Date.now() - startupStartTime;
-    logger.info('Application startup completed', {
-      duration: `${startupDuration}ms`,
-      services: ['dataSyncService']
-    });
-    
   } catch (error) {
-    logger.error('Failed to initialize services', { error: error.message });
-    process.exit(1);
+    console.error('🔧 startServices() - Error details:', error.message);
+    logger.error('❌ Failed to initialize services', { error: error.message, stack: error.stack });
+    throw error;
   }
 }
 
 // Start server
 async function startServer() {
+  const serverStartTime = Date.now();
   try {
-    await startServices();
+    logger.info('🚀 Starting server initialization...', { timestamp: new Date().toISOString() });
     
+    logger.info('📋 Step 1: Starting services initialization...', { timestamp: new Date().toISOString() });
+    const servicesStartTime = Date.now();
+    await startServices();
+    const servicesDuration = Date.now() - servicesStartTime;
+    logger.info('✅ Step 1: Services initialization completed', { 
+      timestamp: new Date().toISOString(),
+      duration: `${servicesDuration}ms`
+    });
+    
+    logger.info('📋 Step 2: Starting HTTP server...', { timestamp: new Date().toISOString() });
+    const serverSetupStartTime = Date.now();
     const server = app.listen(PORT, () => {
-      logger.info('Server started successfully', {
+      const serverSetupDuration = Date.now() - serverSetupStartTime;
+      logger.info('✅ Step 2: HTTP server started successfully', {
+        timestamp: new Date().toISOString(),
         port: PORT,
         environment: process.env.NODE_ENV || 'development',
-        startupTime: Date.now() - startupStartTime
+        startupTime: Date.now() - startupStartTime,
+        serverSetupDuration: `${serverSetupDuration}ms`
       });
     });
 
+    logger.info('📋 Step 3: Setting up graceful shutdown handlers...', { timestamp: new Date().toISOString() });
+
     // Graceful shutdown
     const gracefulShutdown = async (signal) => {
-      logger.info(`Received ${signal}, starting graceful shutdown...`);
+      console.log(`🔧 startServer() - Graceful shutdown triggered by ${signal}`);
+      logger.info(`🛑 Received ${signal}, starting graceful shutdown...`, { timestamp: new Date().toISOString() });
       
       try {
         // Stop accepting new connections
         server.close(() => {
-          logger.info('HTTP server closed');
+          console.log('🔧 startServer() - HTTP server closed');
+          logger.info('✅ HTTP server closed', { timestamp: new Date().toISOString() });
         });
 
         // Shutdown services
+        console.log('🔧 startServer() - Shutting down services...');
+        logger.info('📋 Shutting down services...', { timestamp: new Date().toISOString() });
         await dataSyncService.shutdown();
+        logger.info('✅ Services shutdown completed', { timestamp: new Date().toISOString() });
         
-        logger.info('Graceful shutdown completed');
+        console.log('🔧 startServer() - Graceful shutdown completed');
+        logger.info('✅ Graceful shutdown completed', { timestamp: new Date().toISOString() });
         process.exit(0);
       } catch (error) {
-        logger.error('Error during graceful shutdown', { error: error.message });
+        console.log('🔧 startServer() - Error during graceful shutdown');
+        logger.error('❌ Error during graceful shutdown', { 
+          timestamp: new Date().toISOString(),
+          error: error.message 
+        });
         process.exit(1);
       }
     };
 
     // Handle shutdown signals
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.on('SIGTERM', () => {
+      console.log('🔧 startServer() - SIGTERM received');
+      gracefulShutdown('SIGTERM');
+    });
+
+    process.on('SIGINT', () => {
+      console.log('🔧 startServer() - SIGINT received');
+      gracefulShutdown('SIGINT');
+    });
 
     // Handle uncaught exceptions
     process.on('uncaughtException', (error) => {
-      logger.error('Uncaught exception', { error: error.message, stack: error.stack });
-      gracefulShutdown('uncaughtException');
+      console.log('🔧 startServer() - Uncaught exception received');
+      logger.error('❌ Uncaught exception', { 
+        timestamp: new Date().toISOString(),
+        error: error.message, 
+        stack: error.stack 
+      });
+      // Log the error but don't shut down the application
+      console.log('🔧 startServer() - Continuing despite uncaught exception');
     });
 
     // Handle unhandled promise rejections
     process.on('unhandledRejection', (reason, promise) => {
-      logger.error('Unhandled promise rejection', { reason: reason?.message || reason, promise });
-      gracefulShutdown('unhandledRejection');
+      console.log('🔧 startServer() - Unhandled promise rejection received');
+      logger.error('❌ Unhandled promise rejection', { 
+        timestamp: new Date().toISOString(),
+        reason: reason?.message || reason, 
+        promise 
+      });
+      // Log the error but don't shut down the application
+      console.log('🔧 startServer() - Continuing despite unhandled promise rejection');
     });
 
+    const totalStartupDuration = Date.now() - serverStartTime;
+    logger.info('✅ Step 3: Graceful shutdown handlers configured', { timestamp: new Date().toISOString() });
+    logger.info('🎉 Server startup completed successfully!', { 
+      timestamp: new Date().toISOString(),
+      totalStartupDuration: `${totalStartupDuration}ms`
+    });
+    console.log('🎉 SERVER IS FULLY STARTED AND RUNNING!');
+    console.log(`🌐 Server listening on port ${PORT}`);
+    console.log(`�� Total startup time: ${totalStartupDuration}ms`);
+
   } catch (error) {
-    logger.error('Failed to start server', { error: error.message });
+    const totalStartupDuration = Date.now() - serverStartTime;
+    console.error('🔧 startServer() - Error details:', error.message);
+    logger.error('❌ Failed to start server', { 
+      timestamp: new Date().toISOString(),
+      totalStartupDuration: `${totalStartupDuration}ms`,
+      error: error.message, 
+      stack: error.stack 
+    });
     process.exit(1);
   }
 }

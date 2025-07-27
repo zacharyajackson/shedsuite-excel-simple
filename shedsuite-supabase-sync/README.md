@@ -10,6 +10,7 @@ A standalone service that synchronizes data from the ShedSuite API to Supabase, 
 - 🚀 **Performance**: Batch processing and optimized database operations
 - 🔧 **Flexible Configuration**: Environment-based configuration management
 - 🐳 **Docker Support**: Containerized deployment with Docker and Docker Compose
+- 🚂 **Railway Deployment**: One-click deployment to Railway for continuous operation
 - 📈 **Statistics**: Detailed sync statistics and performance metrics
 
 ## Architecture
@@ -89,6 +90,51 @@ npm start
 ```
 
 The service will be available at `http://localhost:3001`
+
+## Railway Deployment (Recommended for Production)
+
+For continuous operation in production, deploy to Railway:
+
+### Quick Railway Deployment
+
+1. **Connect to Railway**: Go to [railway.app](https://railway.app) and connect your GitHub repository
+2. **Configure Environment Variables**: Add your API keys and configuration in Railway dashboard
+3. **Deploy**: Railway will automatically build and deploy your service
+
+### Railway Configuration
+
+The project includes `railway.json` with optimized settings for Railway deployment:
+
+- **Automatic Health Checks**: Monitors service health every 30 seconds
+- **Restart Policy**: Automatically restarts on failure
+- **Production Optimizations**: Pre-configured for production environments
+
+### Environment Variables for Railway
+
+Copy from `railway.env.example` and configure in Railway dashboard:
+
+```bash
+# Required
+SHEDSUITE_API_BASE_URL=https://api.shedsuite.com
+SHEDSUITE_API_TOKEN=your_actual_shedsuite_api_token
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+
+# Production Settings
+NODE_ENV=production
+ENABLE_REAL_TIME_SYNC=true
+SYNC_INTERVAL_MINUTES=15
+```
+
+### Railway Benefits
+
+- ✅ **Continuous Operation**: 24/7 uptime with automatic restarts
+- ✅ **Zero Downtime**: Automatic deployments and health monitoring
+- ✅ **Scalability**: Automatic scaling based on traffic
+- ✅ **Monitoring**: Built-in logs and metrics
+- ✅ **SSL/TLS**: Automatic HTTPS certificates
+
+For detailed Railway deployment instructions, see [RAILWAY-DEPLOYMENT.md](./RAILWAY-DEPLOYMENT.md).
 
 ## Docker Deployment
 
