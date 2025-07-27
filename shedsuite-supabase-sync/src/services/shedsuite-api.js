@@ -210,6 +210,7 @@ class ShedSuiteAPI {
       let currentPage = 1;
       let hasMorePages = true;
       let totalProcessed = 0;
+      let totalPagesFetched = 0;
 
       while (hasMorePages && currentPage <= this.config.maxPages) {
         try {
@@ -223,7 +224,7 @@ class ShedSuiteAPI {
             filters
           });
 
-          console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Page ${currentPage} raw response:`, JSON.stringify(data, null, 2));
+          console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Page ${currentPage} raw response length:`, data ? (Array.isArray(data) ? data.length : JSON.stringify(data).length) : 0);
           
           const records = this.extractRecords(data);
           console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Page ${currentPage} extracted ${records ? records.length : 0} records`);
@@ -242,6 +243,7 @@ class ShedSuiteAPI {
 
           allRecords.push(...records);
           totalProcessed += records.length;
+          totalPagesFetched++;
 
           console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Page ${currentPage} processed: ${records.length} records, total so far: ${totalProcessed}`);
           apiLogger.info('Page processed', {
@@ -251,9 +253,13 @@ class ShedSuiteAPI {
             hasMore: records.length === this.config.pageSize
           });
 
-          // Check if we have more pages
-          hasMorePages = records.length === this.config.pageSize;
-          currentPage++;
+          // Check if we have more pages - improved logic to handle edge cases
+          if (records.length < this.config.pageSize) {
+            console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Last page with fewer records than page size. Stopping pagination.`);
+            hasMorePages = false;
+          } else {
+            currentPage++;
+          }
 
           // Add small delay to be respectful to the API
           if (hasMorePages) {
@@ -278,10 +284,10 @@ class ShedSuiteAPI {
         }
       }
 
-      console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - All records fetched successfully: ${allRecords.length} total records from ${currentPage - 1} pages`);
+      console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - All records fetched successfully: ${allRecords.length} total records from ${totalPagesFetched} pages`);
       apiLogger.info('All records fetched successfully', {
         totalRecords: allRecords.length,
-        pagesProcessed: currentPage - 1,
+        pagesProcessed: totalPagesFetched,
         filters
       });
 

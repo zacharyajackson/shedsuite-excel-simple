@@ -385,8 +385,21 @@ class DataSyncService {
         return { totalProcessed: 0, inserted: 0 };
       }
 
+      // Log deduplication information
+      const uniqueIds = new Set(transformedRecords.map(record => record.id));
+      const duplicateCount = transformedRecords.length - uniqueIds.size;
+      console.log(`🔧 syncToSupabase() - Found ${duplicateCount} duplicate records out of ${transformedRecords.length} total records`);
+      syncLogger.info('Deduplication analysis', {
+        totalRecords: transformedRecords.length,
+        uniqueRecords: uniqueIds.size,
+        duplicateRecords: duplicateCount,
+        duplicatePercentage: ((duplicateCount / transformedRecords.length) * 100).toFixed(2) + '%'
+      });
+
       syncLogger.info('Starting Supabase sync', {
         recordCount: transformedRecords.length,
+        uniqueRecords: uniqueIds.size,
+        duplicateRecords: duplicateCount,
         batchSize: this.batchSize
       });
 
@@ -400,6 +413,7 @@ class DataSyncService {
 
       let totalInserted = 0;
       let totalProcessed = 0;
+      let totalDuplicatesInSupabase = 0; // Track how many records were updated vs inserted
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
@@ -452,13 +466,17 @@ class DataSyncService {
       console.log('🔧 syncToSupabase() - All batches completed. Final result:', {
         totalProcessed,
         totalInserted,
-        batchesProcessed: batches.length
+        batchesProcessed: batches.length,
+        duplicatesInSupabase: totalProcessed - totalInserted
       });
 
       syncLogger.info('Supabase sync completed', {
         totalProcessed,
         totalInserted,
-        batchesProcessed: batches.length
+        batchesProcessed: batches.length,
+        duplicatesInSupabase: totalProcessed - totalInserted,
+        newRecords: totalInserted,
+        updatedRecords: totalProcessed - totalInserted
       });
 
       return {

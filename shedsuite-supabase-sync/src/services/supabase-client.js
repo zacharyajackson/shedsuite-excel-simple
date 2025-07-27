@@ -139,35 +139,76 @@ class SupabaseClient {
       });
 
       console.log('🔧 SupabaseClient.upsertCustomerOrders() - Calling Supabase upsert...');
-      const { data, error } = await this.client
-        .from('shedsuite_orders')
-        .upsert(orders, {
-          onConflict: 'id',
-          ignoreDuplicates: false
-        })
-        .select();
+      
+      // For large batches, we might want to split them into smaller chunks for better performance
+      const chunkSize = 1000; // Process in chunks of 1000 records
+      let totalInserted = 0;
+      let totalProcessed = 0;
+      
+      if (orders.length > chunkSize) {
+        console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Large batch detected (${orders.length} records), processing in chunks of ${chunkSize}`);
+        dbLogger.info('Large batch detected, processing in chunks', {
+          totalRecords: orders.length,
+          chunkSize: chunkSize,
+          chunks: Math.ceil(orders.length / chunkSize)
+        });
+        
+        for (let i = 0; i < orders.length; i += chunkSize) {
+          const chunk = orders.slice(i, i + chunkSize);
+          console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Processing chunk ${Math.floor(i/chunkSize) + 1}/${Math.ceil(orders.length/chunkSize)} with ${chunk.length} records`);
+          
+          const { data, error } = await this.client
+            .from('shedsuite_orders')
+            .upsert(chunk, {
+              onConflict: 'id',
+              ignoreDuplicates: false
+            })
+            .select();
+            
+          if (error) {
+            console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Chunk ${Math.floor(i/chunkSize) + 1} failed with error:`, error.message);
+            throw error;
+          }
+          
+          totalInserted += data.length;
+          totalProcessed += chunk.length;
+          
+          console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Chunk ${Math.floor(i/chunkSize) + 1} completed: inserted=${data.length}, processed=${chunk.length}`);
+        }
+      } else {
+        // Standard upsert for smaller batches
+        const { data, error } = await this.client
+          .from('shedsuite_orders')
+          .upsert(orders, {
+            onConflict: 'id',
+            ignoreDuplicates: false
+          })
+          .select();
 
-      if (error) {
-        console.log('🔧 SupabaseClient.upsertCustomerOrders() - Supabase upsert failed with error:', error.message);
-        throw error;
+        if (error) {
+          console.log('🔧 SupabaseClient.upsertCustomerOrders() - Supabase upsert failed with error:', error.message);
+          throw error;
+        }
+
+        totalInserted = data.length;
+        totalProcessed = orders.length;
+
+        console.log('🔧 SupabaseClient.upsertCustomerOrders() - Supabase upsert successful:', {
+          inserted: data.length,
+          totalProcessed: orders.length,
+          sampleReturnedData: data.length > 0 ? JSON.stringify(data[0], null, 2) : 'none'
+        });
       }
 
-      console.log('🔧 SupabaseClient.upsertCustomerOrders() - Supabase upsert successful:', {
-        inserted: data.length,
-        totalProcessed: orders.length,
-        sampleReturnedData: data.length > 0 ? JSON.stringify(data[0], null, 2) : 'none'
-      });
-
       dbLogger.info('Customer orders upserted successfully', {
-        inserted: data.length,
-        totalProcessed: orders.length
+        inserted: totalInserted,
+        totalProcessed: totalProcessed
       });
 
       return {
         success: true,
-        inserted: data.length,
-        totalProcessed: orders.length,
-        data
+        inserted: totalInserted,
+        totalProcessed: totalProcessed
       };
     } catch (error) {
       console.log('🔧 SupabaseClient.upsertCustomerOrders() - Failed to upsert customer orders with error:', error.message);
