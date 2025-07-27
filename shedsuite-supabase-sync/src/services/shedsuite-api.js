@@ -252,6 +252,20 @@ class ShedSuiteAPI {
           totalPagesFetched++;
 
           console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - Page ${currentPage} processed: ${records.length} records, total so far: ${totalProcessed}`);
+          
+          // Progress tracking for large datasets
+          if (currentPage % 50 === 0) {
+            const progressPercent = ((currentPage / this.config.maxPages) * 100).toFixed(1);
+            console.log(`📊 PAGINATION PROGRESS - Page ${currentPage}/${this.config.maxPages} (${progressPercent}%) - Records: ${totalProcessed}`);
+            apiLogger.info('Pagination progress update', {
+              currentPage,
+              maxPages: this.config.maxPages,
+              progressPercent: parseFloat(progressPercent),
+              totalRecords: totalProcessed,
+              averageRecordsPerPage: Math.round(totalProcessed / currentPage)
+            });
+          }
+          
           apiLogger.info('Page processed', {
             page: currentPage,
             recordsInPage: records.length,
@@ -292,10 +306,27 @@ class ShedSuiteAPI {
       }
 
       console.log(`🔧 ShedSuiteAPI.fetchAllRecords() - All records fetched successfully: ${allRecords.length} total records from ${totalPagesFetched} pages`);
+      
+      // Memory usage tracking for large datasets
+      const memUsage = process.memoryUsage();
+      const memUsageMB = {
+        rss: Math.round(memUsage.rss / 1024 / 1024),
+        heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024)
+      };
+      
+      console.log(`💾 MEMORY USAGE AFTER FETCH - RSS: ${memUsageMB.rss}MB, Heap Used: ${memUsageMB.heapUsed}MB, Heap Total: ${memUsageMB.heapTotal}MB`);
+      
+      if (memUsageMB.heapUsed > 500) {
+        console.log(`⚠️  HIGH MEMORY USAGE WARNING - ${memUsageMB.heapUsed}MB heap used for ${allRecords.length} records`);
+      }
+      
       apiLogger.info('All records fetched successfully', {
         totalRecords: allRecords.length,
         pagesProcessed: totalPagesFetched,
-        filters
+        filters,
+        memoryUsage: memUsageMB,
+        recordsPerMB: Math.round(allRecords.length / memUsageMB.heapUsed)
       });
 
       return allRecords;
