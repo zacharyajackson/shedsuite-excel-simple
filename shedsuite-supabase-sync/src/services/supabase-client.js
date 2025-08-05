@@ -132,10 +132,56 @@ class SupabaseClient {
       console.log('🔧 SupabaseClient.upsertCustomerOrders() - Sample order:', JSON.stringify(orders[0], null, 2));
       console.log('🔧 SupabaseClient.upsertCustomerOrders() - Order IDs:', orders.map(o => o.id).slice(0, 5));
 
+      // CRITICAL: Deduplicate within batch to prevent "cannot affect row a second time" error
+      console.log('🔧 SupabaseClient.upsertCustomerOrders() - Deduplicating batch...');
+      const orderNumbersSeen = new Set();
+      const idsSeen = new Set();
+      const deduplicatedOrders = [];
+      let duplicatesRemoved = 0;
+      
+      for (const order of orders) {
+        const orderNumber = order.order_number;
+        const id = order.id;
+        
+        if (orderNumbersSeen.has(orderNumber)) {
+          duplicatesRemoved++;
+          console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Removing duplicate order_number in batch: ${orderNumber} (ID: ${id})`);
+          continue;
+        }
+        
+        if (idsSeen.has(id)) {
+          duplicatesRemoved++;
+          console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Removing duplicate ID in batch: ${id} (order: ${orderNumber})`);
+          continue;
+        }
+        
+        orderNumbersSeen.add(orderNumber);
+        idsSeen.add(id);
+        deduplicatedOrders.push(order);
+      }
+      
+      console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Removed ${duplicatesRemoved} duplicates from batch`);
+      console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Proceeding with ${deduplicatedOrders.length} unique orders`);
+      
+      // Use deduplicated orders for the rest of the function
+      const finalOrders = deduplicatedOrders;
+      
+      // If all orders were duplicates, return early
+      if (finalOrders.length === 0) {
+        console.log('🔧 SupabaseClient.upsertCustomerOrders() - All orders were duplicates, nothing to upsert');
+        return {
+          success: true,
+          inserted: 0,
+          totalProcessed: 0
+        };
+      }
+
       dbLogger.info('Upserting customer orders', {
-        count: orders.length,
-        firstOrderId: orders[0]?.id,
-        lastOrderId: orders[orders.length - 1]?.id
+        originalCount: orders.length,
+        deduplicatedCount: finalOrders.length,
+        duplicatesRemoved: duplicatesRemoved,
+        firstOrderId: finalOrders[0]?.id,
+        lastOrderId: finalOrders[finalOrders.length - 1]?.id
       });
 
       console.log('🔧 SupabaseClient.upsertCustomerOrders() - Calling Supabase upsert...');
@@ -145,22 +191,22 @@ class SupabaseClient {
       let totalInserted = 0;
       let totalProcessed = 0;
       
-      if (orders.length > chunkSize) {
-        console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Large batch detected (${orders.length} records), processing in chunks of ${chunkSize}`);
+      if (finalOrders.length > chunkSize) {
+        console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Large batch detected (${finalOrders.length} records), processing in chunks of ${chunkSize}`);
         dbLogger.info('Large batch detected, processing in chunks', {
-          totalRecords: orders.length,
+          totalRecords: finalOrders.length,
           chunkSize: chunkSize,
-          chunks: Math.ceil(orders.length / chunkSize)
+          chunks: Math.ceil(finalOrders.length / chunkSize)
         });
         
-        for (let i = 0; i < orders.length; i += chunkSize) {
-          const chunk = orders.slice(i, i + chunkSize);
-          console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Processing chunk ${Math.floor(i/chunkSize) + 1}/${Math.ceil(orders.length/chunkSize)} with ${chunk.length} records`);
+        for (let i = 0; i < finalOrders.length; i += chunkSize) {
+          const chunk = finalOrders.slice(i, i + chunkSize);
+          console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Processing chunk ${Math.floor(i/chunkSize) + 1}/${Math.ceil(finalOrders.length/chunkSize)} with ${chunk.length} records`);
           
           const { data, error } = await this.client
             .from('shedsuite_orders')
             .upsert(chunk, {
-              onConflict: 'id',
+              onConflict: 'order_number',
               ignoreDuplicates: false
             })
             .select();
@@ -179,8 +225,8 @@ class SupabaseClient {
         // Standard upsert for smaller batches
         const { data, error } = await this.client
           .from('shedsuite_orders')
-          .upsert(orders, {
-            onConflict: 'id',
+          .upsert(finalOrders, {
+            onConflict: 'order_number',
             ignoreDuplicates: false
           })
           .select();
@@ -191,18 +237,18 @@ class SupabaseClient {
         }
 
         totalInserted = data.length;
-        totalProcessed = orders.length;
+        totalProcessed = finalOrders.length;
 
         console.log('🔧 SupabaseClient.upsertCustomerOrders() - Supabase upsert successful:', {
           inserted: data.length,
-          totalProcessed: orders.length,
+          totalProcessed: finalOrders.length,
           sampleReturnedData: data.length > 0 ? JSON.stringify(data[0], null, 2) : 'none'
         });
         
         // Log detailed upsert results
         if (data.length > 0) {
           console.log('🔧 SupabaseClient.upsertCustomerOrders() - Upsert result details:', {
-            totalRecords: orders.length,
+            totalRecords: finalOrders.length,
             recordsReturned: data.length,
             firstUpsertedRecord: {
               id: data[0].id,
@@ -247,7 +293,7 @@ class SupabaseClient {
       return {
         success: false,
         inserted: 0,
-        totalProcessed: orders.length,
+        totalProcessed: finalOrders ? finalOrders.length : orders.length,
         error: error.message
       };
     }
