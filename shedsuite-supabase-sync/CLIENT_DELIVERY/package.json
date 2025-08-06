@@ -1,0 +1,28 @@
+{
+  "name": "supabase-export-solution",
+  "version": "1.0.0",
+  "description": "Clean data export solution that eliminates Supabase UI export issues",
+  "main": "scripts/client-export-solution.js",
+  "scripts": {
+    "export:all": "./scripts/client-export.sh --preset all",
+    "export:recent": "./scripts/client-export.sh --preset recent",
+    "export:minimal": "./scripts/client-export.sh --preset minimal",
+    "test": "node scripts/client-export-solution.js recent"
+  },
+  "keywords": [
+    "supabase",
+    "export",
+    "csv",
+    "data",
+    "cleanup"
+  ],
+  "dependencies": {
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "author": "Export Solution Team",
+  "license": "MIT"
+}

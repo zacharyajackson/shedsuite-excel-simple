@@ -1,0 +1,15 @@
+# Environment Configuration Template
+# Copy this content to a file named .env in your project root
+
+SUPABASE_URL=your_supabase_project_url_here
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+
+# Export Configuration (Optional - defaults provided)
+EXPORT_BATCH_SIZE=500
+EXPORT_OUTPUT_DIR=./exports
+EXPORT_MAX_RETRIES=3
+EXPORT_RETRY_DELAY=1000
+
+# Table Configuration
+CSV_TABLE_NAME=shedsuite_orders

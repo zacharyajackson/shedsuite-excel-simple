@@ -11,7 +11,7 @@ const path = require('path');
 console.log('🔍 COMPREHENSIVE CSV DUPLICATE ANALYSIS');
 console.log('=====================================\n');
 
-const csvPath = path.join(__dirname, '..', 'supabase_direct_export_2025-07-31T15-43-23-521Z.csv');
+const csvPath = path.join(__dirname, '..', 'client-exports/shedsuite_full_export_2025-08-05.csv');
 
 if (!fs.existsSync(csvPath)) {
     console.error('❌ CSV file not found at:', csvPath);

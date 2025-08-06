@@ -1,0 +1,35 @@
+{
+  "exportId": "mdyw1dxi6t2eli6jt3l",
+  "timestamp": "2025-08-05T19:15:47.740Z",
+  "success": true,
+  "recordsExported": 98255,
+  "filePath": "client-exports/shedsuite_orders_export_2025-08-05_mdyw1dxi6t2eli6jt3l.csv",
+  "fileSizeMB": 87.64,
+  "duration": 1904854,
+  "validation": {
+    "fileExists": true,
+    "expectedRecords": 98255,
+    "actualRecords": 98475,
+    "matches": false,
+    "fileSize": 91901649,
+    "hasHeader": true,
+    "headerColumns": 82
+  },
+  "duplicates": {
+    "duplicates": 6,
+    "duplicateIds": [
+      "3% Millitary Discount",
+      "12X32 Cabin $8885.00",
+      "Deduct 3 2X3 windows @$85 each -$255.00",
+      "Add 3 3X3 windows @100 each $300.00",
+      "Material adjustment @ 10% $893.00"
+    ],
+    "totalUniqueIds": 98469
+  },
+  "metadata": {
+    "tableName": "shedsuite_orders",
+    "exportFormat": "csv",
+    "filters": {},
+    "sequenceFixed": false
+  }
+}

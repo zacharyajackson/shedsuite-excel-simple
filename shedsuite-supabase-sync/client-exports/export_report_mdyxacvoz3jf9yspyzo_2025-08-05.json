@@ -1,0 +1,32 @@
+{
+  "exportId": "mdyxacvoz3jf9yspyzo",
+  "timestamp": "2025-08-05T19:19:07.112Z",
+  "success": true,
+  "recordsExported": 3251,
+  "filePath": "client-exports/shedsuite_orders_export_2025-08-05_mdyxacvoz3jf9yspyzo.csv",
+  "fileSizeMB": 2.99,
+  "duration": 6068,
+  "validation": {
+    "fileExists": true,
+    "expectedRecords": 3251,
+    "actualRecords": 3252,
+    "matches": false,
+    "fileSize": 3135221,
+    "hasHeader": true,
+    "headerColumns": 82
+  },
+  "duplicates": {
+    "duplicates": 0,
+    "duplicateIds": [],
+    "totalUniqueIds": 3252
+  },
+  "metadata": {
+    "tableName": "shedsuite_orders",
+    "exportFormat": "csv",
+    "dateRange": {
+      "start": "2025-07-06T19:19:01.038Z"
+    },
+    "filters": {},
+    "sequenceFixed": false
+  }
+}
