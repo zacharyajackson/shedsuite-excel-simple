@@ -78,25 +78,35 @@ CSV_TABLE_NAME=shedsuite_orders
 
 ## 📊 Technical Features
 
+### Self-Contained Architecture
+- **Supabase Client Module** (`src/services/supabase-client.js`): Singleton database connection with lazy initialization
+- **Logging System** (`src/utils/logger.js`): Comprehensive Winston-based logging with file rotation
+- **Export Engine** (`scripts/client-export-solution.js`): Advanced pagination and duplicate prevention
+- **User Interface** (`scripts/client-export.sh`): Bash wrapper for non-technical users
+
 ### Duplicate Prevention
-- Tracks exported IDs in memory during export
-- Filters duplicates in real-time
-- Provides duplicate analysis in reports
+- Tracks exported IDs in memory during export using JavaScript Set for O(1) lookups
+- Filters duplicates in real-time before writing to files
+- Provides duplicate analysis in reports with specific ID tracking
+- Handles pagination edge cases and concurrent data modifications
 
 ### Data Validation
-- Verifies export completeness
-- Checks file integrity
-- Validates record counts
+- Verifies export completeness by comparing expected vs actual record counts
+- Checks file integrity with metadata validation
+- Validates CSV structure and column consistency
+- Provides detailed validation reports in JSON format
 
 ### Error Handling
-- Automatic retry on network failures
-- Graceful error recovery
-- Detailed error logging
+- Automatic retry on network failures with exponential backoff capability
+- Graceful error recovery with detailed error classification
+- Comprehensive error logging with context-specific loggers
+- Health check functionality for connection validation
 
 ### Performance Optimization
-- Configurable batch sizes
-- Rate limiting to prevent database overload
-- Memory-efficient processing
+- Configurable batch sizes (default: 500 records per batch)
+- Rate limiting to prevent database overload (200ms delay every 5 batches)
+- Memory-efficient processing with streaming file writes
+- Progress tracking with ETA calculations
 
 ## 📁 Output Files
 
@@ -195,6 +205,73 @@ EXPORT_BATCH_SIZE=1000
 EXPORT_MAX_RETRIES=3
 EXPORT_RETRY_DELAY=500
 ```
+
+## 🏗️ Architecture Overview
+
+### Module Structure
+```
+src/
+├── services/
+│   └── supabase-client.js    # Database connection singleton
+└── utils/
+    └── logger.js            # Logging infrastructure
+
+scripts/
+├── client-export.sh         # Bash wrapper (user interface)
+└── client-export-solution.js # Core export engine
+```
+
+### Database Connection (`src/services/supabase-client.js`)
+- **Pattern**: Singleton with lazy initialization
+- **Features**: 
+  - Environment-based configuration with validation
+  - Service role authentication for administrative access
+  - Multi-tier health checking (RPC → table access → connection test)
+  - Comprehensive error handling and logging
+- **Key Methods**:
+  - `client` getter: Lazy-loading database client
+  - `healthCheck()`: Connection validation with intelligent error analysis
+
+### Logging System (`src/utils/logger.js`)
+- **Technology**: Winston with multiple transports
+- **Features**:
+  - File rotation (10MB files, 5 historical files)
+  - Context-specific loggers (sync, api, database)
+  - Console output with colors for development
+  - JSON formatting for log analysis tools
+- **Outputs**:
+  - `logs/app.log`: All application logs
+  - `logs/error.log`: Error-level logs only
+  - Console: Real-time colored output
+
+### Export Engine (`scripts/client-export-solution.js`)
+- **Pattern**: Class-based with comprehensive error handling
+- **Core Features**:
+  - PostgreSQL sequence synchronization (fixes Supabase issues)
+  - Real-time duplicate detection using JavaScript Set
+  - Paginated data export with consistent ordering
+  - CSV parsing with quote handling
+  - Retry logic with exponential backoff capability
+- **Key Classes**:
+  - `ClientExportSolution`: Main export orchestrator
+  - Methods: `exportTable()`, `exportWithPagination()`, `checkDuplicates()`
+
+### User Interface (`scripts/client-export.sh`)
+- **Technology**: Bash script with argument parsing
+- **Features**:
+  - Prerequisite checking (Node.js, npm, .env)
+  - Colored output for better user experience
+  - Progress monitoring and logging
+  - Export summary with file statistics
+- **Modes**: Preset configurations (all, recent, minimal) + custom options
+
+### Data Flow
+1. **Initialization**: Validate environment and database connection
+2. **Sequence Fix**: Synchronize PostgreSQL sequences if needed
+3. **Count**: Get accurate record count with filters
+4. **Export**: Paginated data export with duplicate detection
+5. **Validation**: Verify export completeness and integrity
+6. **Reporting**: Generate comprehensive JSON reports
 
 ## 🎯 Best Practices
 
