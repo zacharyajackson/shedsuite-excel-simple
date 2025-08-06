@@ -80,17 +80,25 @@ Ask your technical team to complete the setup below, then you can run simple exp
    ```
    (Replace `C:\CLIENT_DELIVERY` with your actual path)
 
-4. **Install dependencies**:
+4. **Check npm version** (recommended):
+   ```cmd
+   npm --version
+   ```
+   - Should be 8.0.0 or higher
+   - If outdated: `npm install -g npm@latest`
+
+5. **Install dependencies**:
    ```cmd
    npm install
    ```
+   - If this fails, see "NPM Version Issues" in Troubleshooting section
 
-5. **Create your configuration file**:
+6. **Create your configuration file**:
    ```cmd
    copy environment_template.txt .env
    ```
 
-6. **Edit the .env file**:
+7. **Edit the .env file**:
    - Right-click on `.env` file → "Open with" → Notepad
    - Add your Supabase credentials (see Environment Setup section below)
 
@@ -280,6 +288,23 @@ node scripts/client-export-solution.js custom --table your_table --format csv
 2. **"Table validation failed"** → Check your `.env` file credentials
 3. **"No records found"** → Verify your date range filters
 4. **"Module not found"** → Run `npm install` first
+
+### **NPM Version Issues**
+5. **"npm install fails" or "dependency conflicts"** → 
+   - **Check npm version**: `npm --version` (should be 8.0.0+)
+   - **Update npm**: `npm install -g npm@latest`
+   - **Clear npm cache**: `npm cache clean --force`
+   - **Delete and reinstall**: `rm -rf node_modules package-lock.json && npm install`
+
+6. **"ERESOLVE unable to resolve dependency tree"** → 
+   - **Use legacy resolver**: `npm install --legacy-peer-deps`
+   - **Or force resolution**: `npm install --force`
+   - **Update Node.js**: Download latest LTS from nodejs.org
+
+7. **"gyp ERR!" or "node-gyp" build errors** → 
+   - **Windows**: Install Visual Studio Build Tools
+   - **Mac**: Install Xcode Command Line Tools: `xcode-select --install`
+   - **Linux**: Install build essentials: `sudo apt-get install build-essential`
 
 ### **Performance Tips**
 - Use `--batch 250` for slower internet connections

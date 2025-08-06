@@ -3,9 +3,24 @@
 ## 🛠️ Quick Setup
 
 ### Prerequisites
-- Node.js (version 14+)
-- npm package manager
-- Supabase database access
+- **Node.js** (version 14.0.0 or higher) - [Download from nodejs.org](https://nodejs.org/)
+- **npm** (version 8.0.0 or higher) - Included with Node.js
+- **Supabase database access** - URL and service role key
+
+### Version Verification
+```bash
+# Check installed versions
+node --version    # Should output v14.0.0 or higher
+npm --version     # Should output 8.0.0 or higher
+
+# Update npm if needed
+npm install -g npm@latest
+```
+
+**Common Version Issues:**
+- npm < 8.0.0 may cause dependency resolution errors
+- Node.js < 14.0.0 may have compatibility issues with modern dependencies
+- Outdated npm cache can cause installation failures
 
 ### Installation
 ```bash
@@ -158,6 +173,32 @@ chmod +x scripts/client-export.sh
 - Reduce batch size: `--batch 250`
 - Skip validation: `--no-validate`
 - Check network connection
+
+**NPM/Dependency Issues**
+- **Outdated npm**: Update with `npm install -g npm@latest`
+- **Version conflicts**: Use `npm install --legacy-peer-deps`
+- **Cache corruption**: Clear with `npm cache clean --force`
+- **Build failures**: Install platform-specific build tools
+  - Windows: Visual Studio Build Tools
+  - Mac: `xcode-select --install`
+  - Linux: `sudo apt-get install build-essential`
+
+**Resolution Strategy for NPM Errors**
+```bash
+# Check versions
+node --version    # Should be 14.0.0+
+npm --version     # Should be 8.0.0+
+
+# Clean reinstall
+rm -rf node_modules package-lock.json
+npm cache clean --force
+npm install
+
+# If still failing
+npm install --legacy-peer-deps
+# or
+npm install --force
+```
 
 ### Debugging Steps
 1. Test with recent data first: `--preset recent`
