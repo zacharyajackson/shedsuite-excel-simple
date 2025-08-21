@@ -56,6 +56,12 @@ class DataSyncService {
         syncLogger.info('⏭️ Skipping connection tests (SKIP_CONNECTION_TESTS=true)', { timestamp: new Date().toISOString() });
       }
 
+      // One-time full resync on deploy if requested
+      if (process.env.RUN_FULL_RESYNC_ON_DEPLOY === 'true') {
+        console.log('🔧 DataSyncService.initialize() - RUN_FULL_RESYNC_ON_DEPLOY=true, running full resync');
+        await this.performSync({ fullSync: true });
+      }
+
       // Start scheduled sync if enabled
       console.log('🔧 DataSyncService.initialize() - Checking ENABLE_REAL_TIME_SYNC:', process.env.ENABLE_REAL_TIME_SYNC);
       if (process.env.ENABLE_REAL_TIME_SYNC === 'true') {

@@ -182,7 +182,7 @@ function transformRecord(rawData) {
     // Additional Information
     serial_number: safeValue(rawData.serialNumber),
     shop_name: safeValue(rawData.shopName),
-    sold_by_dealer: safeBoolean(rawData.soldByDealer),
+    sold_by_dealer: safeValue(rawData.soldByDealer),
     sold_by_dealer_id: safeValue(rawData.soldByDealerId),
     sold_by_dealer_user: safeValue(rawData.soldByDealerUser),
 

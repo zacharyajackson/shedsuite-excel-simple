@@ -1,4 +1,6 @@
 require('dotenv').config();
+// Prefer IPv4 for outbound connections (avoids ENETUNREACH on IPv6-only blocks)
+try { require('dns').setDefaultResultOrder('ipv4first'); } catch (_) {}
 console.log('🚀 Starting ShedSuite Supabase Sync Service...');
 console.log('📅 Startup timestamp:', new Date().toISOString());
 
@@ -15,6 +17,7 @@ const { healthRouter } = require('./routes/health');
 
 // Import services
 const dataSyncService = require('./services/data-sync-service');
+const { runStartupMigrations } = require('./services/db-migration');
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -167,6 +170,9 @@ app.use((error, req, res, next) => {
 // Initialize services
 async function startServices() {
   try {
+    // Run idempotent DB migrations if configured
+    await runStartupMigrations();
+
     await dataSyncService.initialize();
     isFullyInitialized = true;
   } catch (error) {

@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS shedsuite_orders (
     -- Additional Information
     serial_number VARCHAR(255),
     shop_name VARCHAR(255),
-    sold_by_dealer BOOLEAN,
+    sold_by_dealer VARCHAR(500),
     sold_by_dealer_id VARCHAR(255),
     sold_by_dealer_user VARCHAR(255),
     

@@ -122,7 +122,7 @@ class DataTransformer {
         // Additional Information
         serial_number: this.safeValue(rawData.serialNumber),
         shop_name: this.safeValue(rawData.shopName),
-        sold_by_dealer: this.safeBoolean(rawData.soldByDealer),
+        sold_by_dealer: this.safeValue(rawData.soldByDealer),
         sold_by_dealer_id: this.safeValue(rawData.soldByDealerId),
         sold_by_dealer_user: this.safeValue(rawData.soldByDealerUser),
 

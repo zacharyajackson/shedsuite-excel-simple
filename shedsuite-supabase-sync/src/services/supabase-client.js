@@ -134,28 +134,19 @@ class SupabaseClient {
 
       // CRITICAL: Deduplicate within batch to prevent "cannot affect row a second time" error
       console.log('🔧 SupabaseClient.upsertCustomerOrders() - Deduplicating batch...');
-      const orderNumbersSeen = new Set();
       const idsSeen = new Set();
       const deduplicatedOrders = [];
       let duplicatesRemoved = 0;
       
       for (const order of orders) {
-        const orderNumber = order.order_number;
         const id = order.id;
-        
-        if (orderNumbersSeen.has(orderNumber)) {
-          duplicatesRemoved++;
-          console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Removing duplicate order_number in batch: ${orderNumber} (ID: ${id})`);
-          continue;
-        }
         
         if (idsSeen.has(id)) {
           duplicatesRemoved++;
-          console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Removing duplicate ID in batch: ${id} (order: ${orderNumber})`);
+          console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Removing duplicate ID in batch: ${id}`);
           continue;
         }
         
-        orderNumbersSeen.add(orderNumber);
         idsSeen.add(id);
         deduplicatedOrders.push(order);
       }
@@ -206,7 +197,7 @@ class SupabaseClient {
           const { data, error } = await this.client
             .from('shedsuite_orders')
             .upsert(chunk, {
-              onConflict: 'order_number',
+              onConflict: 'id',
               ignoreDuplicates: false
             })
             .select();
@@ -226,7 +217,7 @@ class SupabaseClient {
         const { data, error } = await this.client
           .from('shedsuite_orders')
           .upsert(finalOrders, {
-            onConflict: 'order_number',
+            onConflict: 'id',
             ignoreDuplicates: false
           })
           .select();
