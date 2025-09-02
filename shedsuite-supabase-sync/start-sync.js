@@ -76,13 +76,15 @@ function formatDate(dateValue) {
 }
 
 function transformRecord(rawData) {
-  // Transform building addons arrays to strings
-  const buildingAddonsStr = rawData.buildingAddons && Array.isArray(rawData.buildingAddons) 
-    ? rawData.buildingAddons.map(addon => `${addon.name}: $${addon.price}`).join('; ')
+  // Transform building addons arrays to strings and JSON details
+  const buildingAddonsArray = Array.isArray(rawData.buildingAddons) ? rawData.buildingAddons : null;
+  const buildingAddonsStr = buildingAddonsArray 
+    ? buildingAddonsArray.map(addon => `${addon.name}: $${addon.price}`).join('; ')
     : null;
   
-  const customAddonsStr = rawData.buildingCustomAddons && Array.isArray(rawData.buildingCustomAddons)
-    ? rawData.buildingCustomAddons.map(addon => `${addon.name}: $${addon.price}`).join('; ')
+  const customAddonsArray = Array.isArray(rawData.buildingCustomAddons) ? rawData.buildingCustomAddons : null;
+  const customAddonsStr = customAddonsArray
+    ? customAddonsArray.map(addon => `${addon.name}: $${addon.price}`).join('; ')
     : null;
 
   // Get the most recent date for timestamp
@@ -113,8 +115,19 @@ function transformRecord(rawData) {
 
     // Building Information
     building_addons: buildingAddonsStr,
+    building_addons_details: buildingAddonsArray ? buildingAddonsArray.map(a => ({
+      name: a.name ?? null,
+      price: a.price ?? null,
+      priceIncluded: typeof a.priceIncluded === 'boolean' ? a.priceIncluded : safeBoolean(a.priceIncluded),
+      quantity: a.quantity ?? null
+    })) : null,
     building_condition: safeValue(rawData.buildingCondition),
     building_custom_addons: customAddonsStr,
+    building_custom_addons_details: customAddonsArray ? customAddonsArray.map(a => ({
+      name: a.name ?? null,
+      price: a.price ?? null,
+      quantity: a.quantity ?? null
+    })) : null,
     building_length: safeValue(rawData.buildingLength),
     building_model_name: safeValue(rawData.buildingModelName),
     building_roof_color: safeValue(rawData.buildingRoofColor),
