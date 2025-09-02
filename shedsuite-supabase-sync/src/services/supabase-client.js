@@ -155,7 +155,37 @@ class SupabaseClient {
       console.log(`🔧 SupabaseClient.upsertCustomerOrders() - Proceeding with ${deduplicatedOrders.length} unique orders`);
       
       // Use deduplicated orders for the rest of the function
-      const finalOrders = deduplicatedOrders;
+      let finalOrders = deduplicatedOrders;
+
+      // Resolve unique constraint on order_number by aligning IDs to existing rows
+      // If a row with the same order_number already exists with a different id, reuse the existing id
+      try {
+        const orderNumbers = finalOrders
+          .map(o => o.order_number)
+          .filter(n => typeof n === 'string' && n.trim() !== '');
+
+        if (orderNumbers.length > 0) {
+          const { data: existingByOrderNumber, error: fetchErr } = await this.client
+            .from('shedsuite_orders')
+            .select('id, order_number')
+            .in('order_number', orderNumbers);
+
+          if (!fetchErr && Array.isArray(existingByOrderNumber) && existingByOrderNumber.length > 0) {
+            const numberToId = new Map(existingByOrderNumber.map(r => [r.order_number, r.id]));
+
+            finalOrders = finalOrders.map(o => {
+              const existingId = numberToId.get(o.order_number);
+              if (existingId && o.id !== existingId) {
+                // Reuse existing id to avoid unique constraint on order_number
+                return { ...o, id: existingId };
+              }
+              return o;
+            });
+          }
+        }
+      } catch (alignErr) {
+        console.log('🔧 SupabaseClient.upsertCustomerOrders() - Warning aligning order_number IDs:', alignErr.message);
+      }
       
       // If all orders were duplicates, return early
       if (finalOrders.length === 0) {
@@ -277,14 +307,14 @@ class SupabaseClient {
       console.log('🔧 SupabaseClient.upsertCustomerOrders() - Failed to upsert customer orders with error:', error.message);
       dbLogger.error('Failed to upsert customer orders', {
         error: error.message,
-        count: orders.length,
+        count: Array.isArray(orders) ? orders.length : 0,
         stack: error.stack
       });
       // Don't throw the error to prevent application shutdown
       return {
         success: false,
         inserted: 0,
-        totalProcessed: finalOrders ? finalOrders.length : orders.length,
+        totalProcessed: Array.isArray(orders) ? orders.length : 0,
         error: error.message
       };
     }
