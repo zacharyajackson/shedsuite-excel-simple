@@ -186,6 +186,38 @@ class SupabaseClient {
       } catch (alignErr) {
         console.log('🔧 SupabaseClient.upsertCustomerOrders() - Warning aligning order_number IDs:', alignErr.message);
       }
+
+      // IMPORTANT: Ensure we don't violate unique order_number within the batch itself.
+      // Keep the last occurrence per order_number to avoid inserting multiple rows with the same order_number.
+      try {
+        const byOrderNumber = new Map();
+        for (const order of finalOrders) {
+          const key = typeof order.order_number === 'string' ? order.order_number : '';
+          if (key) {
+            byOrderNumber.set(key, order); // last writer wins
+          } else {
+            // Orders without order_number are kept as-is (rare); use a synthetic key
+            const syntheticKey = `__no_number__:${order.id}`;
+            byOrderNumber.set(syntheticKey, order);
+          }
+        }
+        finalOrders = Array.from(byOrderNumber.values());
+      } catch (dedupeErr) {
+        console.log('🔧 SupabaseClient.upsertCustomerOrders() - Warning deduping by order_number:', dedupeErr.message);
+      }
+
+      // After order_number dedupe, also ensure unique IDs within the batch
+      try {
+        const byId = new Map();
+        for (const order of finalOrders) {
+          if (order.id) {
+            byId.set(order.id, order); // last writer wins
+          }
+        }
+        finalOrders = Array.from(byId.values());
+      } catch (idDedupeErr) {
+        console.log('🔧 SupabaseClient.upsertCustomerOrders() - Warning deduping by id:', idDedupeErr.message);
+      }
       
       // If all orders were duplicates, return early
       if (finalOrders.length === 0) {
