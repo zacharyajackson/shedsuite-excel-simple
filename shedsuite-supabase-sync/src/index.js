@@ -170,8 +170,15 @@ app.use((error, req, res, next) => {
 // Initialize services
 async function startServices() {
   try {
-    // Run idempotent DB migrations if configured
-    await runStartupMigrations();
+    // Optionally skip startup DB migrations in production to avoid network issues
+    const skipMigrations = process.env.SKIP_STARTUP_MIGRATIONS === 'true' || (process.env.NODE_ENV === 'production');
+    if (skipMigrations) {
+      logger.info('Skipping startup DB migrations', {
+        reason: process.env.SKIP_STARTUP_MIGRATIONS === 'true' ? 'env_flag' : 'production_env'
+      });
+    } else {
+      await runStartupMigrations();
+    }
 
     await dataSyncService.initialize();
     isFullyInitialized = true;
