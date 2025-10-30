@@ -123,6 +123,75 @@ CSV_TABLE_NAME=shedsuite_orders
 - Memory-efficient processing with streaming file writes
 - Progress tracking with ETA calculations
 
+## 🧩 New Data Fields and Views (Add-on Details)
+
+- Orders now include structured JSON fields:
+  - `building_addons_details`: array of `{ name, price, quantity, priceIncluded }`
+  - `building_custom_addons_details`: array of `{ name, price, quantity }`
+- A flattened analytics view is available:
+  - `public.shedsuite_order_addons_flat` with columns:
+    - `order_id, order_number, customer_name, status, date_ordered, total_amount_dollar_amount, addon_type, addon_name, addon_price, addon_quantity, addon_price_included`
+
+## 📦 Exporting JSON Fields and Add-ons View
+
+- The export engine automatically serializes nested objects/arrays (e.g., `building_addons_details`) into JSON strings so CSVs remain readable and safe.
+- When exporting the `shedsuite_orders` table, the script also attempts to export the flattened add-ons view to a separate CSV by default.
+
+### Toggle add-ons view export
+- Programmatic: pass `exportAddonsFlat: false` to `exportTable()` to skip.
+- CLI: (default behavior) included when exporting `shedsuite_orders`.
+
+### Example custom export
+```bash
+node scripts/client-export-solution.js custom \
+  --table shedsuite_orders \
+  --format csv
+```
+- Outputs:
+  - Orders CSV with all columns; JSON fields are serialized as strings
+  - Add-ons flat CSV (if available), one row per add-on
+
+## 🔗 Power BI – Refresh-safe Queries
+
+Two refresh-safe options:
+
+### 1) PostgreSQL connector (recommended if gateway/VNet is available)
+- Connect to your Supabase Postgres with fixed server/database.
+- Select:
+  - `public.shedsuite_orders` (raw table) and/or
+  - `public.shedsuite_order_addons_flat` (one row per add-on)
+- Configure dataset credentials in the Power BI Service; enable scheduled refresh.
+
+### 2) Supabase REST with RelativePath/Query (no gateway)
+- Sample M query for the flattened add-ons view is provided at:
+  - `CLIENT_DELIVERY/scripts/power-query-addons-flat.m`
+- Key points:
+  - Use a fixed base URL; pass path and query via `RelativePath` and `Query`
+  - Set dataset credentials for the base URL to Anonymous; the API key is sent via headers
+
+### M Query to fetch all orders (ALL COLUMNS)
+```m
+let
+    ApiBase   = "https://YOUR_PROJECT.supabase.co",
+    ApiKey    = "YOUR_ANON_KEY",
+    PageSize  = 1000,
+    GetPage = (optional lastId as nullable text) as table =>
+        let
+            QueryBase = [ select = "*", order = "id.asc", limit = Text.From(PageSize) ],
+            QueryRec  = if lastId = null or lastId = "" then QueryBase else Record.AddField(QueryBase, "id", "gt." & lastId),
+            Response  = Json.Document(Web.Contents(ApiBase, [ RelativePath = "rest/v1/shedsuite_orders", Query = QueryRec, Headers = [ #"apikey" = ApiKey, #"Authorization" = "Bearer " & ApiKey ] ])),
+            T         = Table.FromList(Response, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+            Expanded  = if Table.RowCount(T) = 0 then T else Table.ExpandRecordColumn(T, "Column1", Record.FieldNames(T{0}[Column1]), Record.FieldNames(T{0}[Column1]))
+        in
+            Expanded,
+    First    = GetPage(null),
+    Pages    = if Table.RowCount(First) = 0 then { First } else List.Generate(() => [ acc = First, last = Text.From(First{Table.RowCount(First)-1}[id]) ], each Table.RowCount([acc]) > 0, each [ acc = GetPage([last]), last = if Table.RowCount([acc]) = 0 then [last] else Text.From([acc]{Table.RowCount([acc])-1}[id]) ], each [acc]),
+    Combined = Table.Combine(Pages),
+    Result   = if Table.HasColumns(Combined, {"id"}) then Table.Distinct(Combined, {"id"}) else Combined
+in
+    Result
+```
+
 ## 📁 Output Files
 
 After each export:
@@ -139,15 +208,9 @@ After each export:
   "filePath": "path/to/export.csv",
   "fileSizeMB": 87.64,
   "duration": 42000,
-  "validation": {
-    "expectedRecords": 98273,
-    "actualRecords": 98273,
-    "matches": true
-  },
-  "duplicates": {
-    "duplicates": 0,
-    "duplicateIds": []
-  }
+  "validation": { "expectedRecords": 98273, "actualRecords": 98273, "matches": true },
+  "duplicates": { "duplicates": 0, "duplicateIds": [] },
+  "metadata": { "addonsView": { "filePath": "...", "recordsExported": 12345, "fileSizeMB": 12.34 } }
 }
 ```
 
@@ -293,9 +356,11 @@ scripts/
   - Paginated data export with consistent ordering
   - CSV parsing with quote handling
   - Retry logic with exponential backoff capability
+  - JSON serialization of nested fields in CSV output
+  - Optional export of `shedsuite_order_addons_flat` (one row per add-on)
 - **Key Classes**:
   - `ClientExportSolution`: Main export orchestrator
-  - Methods: `exportTable()`, `exportWithPagination()`, `checkDuplicates()`
+  - Methods: `exportTable()`, `exportWithPagination()`, `exportAddonsFlat()`, `checkDuplicates()`
 
 ### User Interface (`scripts/client-export.sh`)
 - **Technology**: Bash script with argument parsing

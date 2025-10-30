@@ -1,0 +1,17 @@
+# Railway configuration for ShedSuite Inventory → Supabase service
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/health"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[cron]
+  [cron.inventory_sync]
+  schedule = "0 * * * *" # hourly at top of each hour
+  command = "npm run sync"
+
+

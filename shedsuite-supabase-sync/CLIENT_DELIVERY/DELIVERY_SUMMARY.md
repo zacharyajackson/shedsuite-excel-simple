@@ -102,6 +102,16 @@ CLIENT_DELIVERY/
 - Modular code structure for easy maintenance
 - Production-tested solution components
 
+## 🆕 Add-on Details and Power BI
+
+- Orders now include full add-on details in JSON columns:
+  - `building_addons_details` and `building_custom_addons_details`
+- A flattened analytics view `public.shedsuite_order_addons_flat` is available for one-row-per-add-on use cases.
+- The export engine serializes JSON fields for CSVs and can export the flattened view as a separate CSV.
+- Refresh-safe Power BI M queries are included in `CLIENT_DELIVERY/scripts/`:
+  - `power-query-addons-flat.m` (REST with RelativePath/Query)
+  - Guidance for loading all columns from `shedsuite_orders` and expanding JSON in Power BI.
+
 ## 🎉 Success Confirmation
 
 ✅ **Zero duplicates** in export capability - tested and validated  

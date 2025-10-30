@@ -44,7 +44,8 @@ class ClientExportSolution {
       dateRange,
       filters = {},
       columns = null,
-      filename = null
+      filename = null,
+      exportAddonsFlat = true // also export flattened add-ons view
     } = options;
 
     console.log('🚀 CLIENT EXPORT SOLUTION');
@@ -97,6 +98,18 @@ class ClientExportSolution {
         exportId
       });
 
+      // Optionally export flattened add-ons view to a separate CSV
+      let addonsExportResult = null;
+      if (exportAddonsFlat && tableName === 'shedsuite_orders') {
+        console.log('\n📦 Step 4b: Exporting flattened add-ons view...');
+        try {
+          addonsExportResult = await this.exportAddonsFlat({ exportId, outputFormat });
+          console.log(`✅ Add-ons view exported: ${addonsExportResult.filePath}`);
+        } catch (e) {
+          console.log(`⚠️  Skipped add-ons view export: ${e.message}`);
+        }
+      }
+
       // Step 5: Validate export integrity
       if (validateData) {
         console.log('\n🔍 Step 5: Validating export integrity...');
@@ -125,7 +138,12 @@ class ClientExportSolution {
           exportFormat: outputFormat,
           dateRange,
           filters,
-          sequenceFixed
+          sequenceFixed,
+          addonsView: addonsExportResult ? {
+            filePath: addonsExportResult.filePath,
+            recordsExported: addonsExportResult.recordsExported,
+            fileSizeMB: addonsExportResult.fileSizeMB
+          } : null
         }
       });
 
@@ -309,11 +327,9 @@ class ClientExportSolution {
       throw new Error('No data found after applying filters');
     }
 
-    // Set up CSV writer
-    const headers = Object.keys(sampleData[0]).map(key => ({
-      id: key,
-      title: key
-    }));
+    // Set up CSV writer (headers from sample row)
+    const headerKeys = Object.keys(sampleData[0]);
+    const headers = headerKeys.map(key => ({ id: key, title: key }));
 
     const csvWriter = createObjectCsvWriter({
       path: outputFile,
@@ -395,19 +411,22 @@ class ClientExportSolution {
         console.log(`⚠️  Found ${duplicateIds.length} duplicate IDs in batch ${batchCount}`);
       }
 
+      // Serialize any nested objects/arrays into JSON strings for CSV safety
+      const serializedBatch = uniqueBatchData.map(record => this.serializeRecord(record));
+
       // Write batch to file
       if (batchCount === 1) {
-        await csvWriter.writeRecords(uniqueBatchData);
+        await csvWriter.writeRecords(serializedBatch);
       } else {
         const appendWriter = createObjectCsvWriter({
           path: outputFile,
           header: headers,
           append: true
         });
-        await appendWriter.writeRecords(uniqueBatchData);
+        await appendWriter.writeRecords(serializedBatch);
       }
 
-      totalExported += uniqueBatchData.length;
+      totalExported += serializedBatch.length;
       const batchDuration = Date.now() - batchStart;
       const progressPercent = ((batchCount / totalBatches) * 100).toFixed(1);
       const avgTime = (Date.now() - batchStart) / batchCount;
@@ -432,6 +451,100 @@ class ClientExportSolution {
       fileSizeMB: parseFloat(fileSizeMB),
       exportedIds: Array.from(exportedIds)
     };
+  }
+
+  /**
+   * Export flattened add-ons view in batches using range-based pagination
+   */
+  async exportAddonsFlat({ exportId, outputFormat = 'csv' }) {
+    const tableName = 'shedsuite_order_addons_flat';
+    const batchSize = this.batchSize;
+
+    if (!fs.existsSync(this.outputDir)) {
+      fs.mkdirSync(this.outputDir, { recursive: true });
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+    const filename = `${tableName}_export_${timestamp}_${exportId}.${outputFormat}`;
+    const outputFile = path.join(this.outputDir, filename);
+
+    // Get a sample row for headers
+    const { data: sampleData, error: sampleError } = await supabaseClient.client
+      .from(tableName)
+      .select('*')
+      .order('order_id', { ascending: true })
+      .limit(1);
+
+    if (sampleError) throw new Error(`Sample query (addons view) failed: ${sampleError.message}`);
+    if (!sampleData || sampleData.length === 0) throw new Error('Add-ons view is empty');
+
+    const headerKeys = Object.keys(sampleData[0]);
+    const headers = headerKeys.map(key => ({ id: key, title: key }));
+
+    const csvWriter = createObjectCsvWriter({ path: outputFile, header: headers });
+
+    let offset = 0;
+    let totalExported = 0;
+    let batchCount = 0;
+
+    while (true) {
+      batchCount++;
+      const { data: batchData, error: batchError } = await supabaseClient.client
+        .from(tableName)
+        .select('*')
+        .order('order_id', { ascending: true })
+        .range(offset, offset + batchSize - 1);
+
+      if (batchError) throw new Error(`Add-ons view batch ${batchCount} failed: ${batchError.message}`);
+      if (!batchData || batchData.length === 0) break;
+
+      const serializedBatch = batchData.map(record => this.serializeRecord(record));
+
+      if (offset === 0) {
+        await csvWriter.writeRecords(serializedBatch);
+      } else {
+        const appendWriter = createObjectCsvWriter({ path: outputFile, header: headers, append: true });
+        await appendWriter.writeRecords(serializedBatch);
+      }
+
+      totalExported += serializedBatch.length;
+      offset += batchSize;
+
+      if (batchCount % 5 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
+
+    const fileStats = fs.statSync(outputFile);
+    const fileSizeMB = (fileStats.size / 1024 / 1024).toFixed(2);
+
+    return {
+      recordsExported: totalExported,
+      filePath: outputFile,
+      fileSizeMB: parseFloat(fileSizeMB)
+    };
+  }
+
+  /**
+   * Serialize a record so nested objects/arrays are JSON strings for CSV safety
+   */
+  serializeRecord(record) {
+    const out = {};
+    Object.keys(record).forEach(key => {
+      const val = record[key];
+      if (val === null || val === undefined) {
+        out[key] = null;
+      } else if (typeof val === 'object') {
+        try {
+          out[key] = JSON.stringify(val);
+        } catch (_) {
+          out[key] = String(val);
+        }
+      } else {
+        out[key] = val;
+      }
+    });
+    return out;
   }
 
   /**

@@ -1,0 +1,28 @@
+{
+  "name": "shedsuite-inventory-powerbi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Express service to sync ShedSuite Inventory data to a Power BI push dataset",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "sync": "node src/cli/runSync.js",
+    "sync:csv": "node src/cli/exportCsv.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^2.6.4",
+    "@supabase/supabase-js": "^2.39.0",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.11.5",
+    "pino": "^9.0.0",
+    "pino-http": "^9.0.0"
+  }
+}
+
+

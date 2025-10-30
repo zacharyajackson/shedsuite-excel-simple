@@ -1,0 +1,736 @@
+{
+	"info": {
+		"_postman_id": "c270e9fe-297e-4b27-92c5-831bbeec2ed9",
+		"name": "Public API Copy",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "39984512",
+		"_collection_link": "https://shed-suite-1424.postman.co/workspace/Shed-Suite-Workspace~75b61249-5e87-484d-89da-174d851724a9/collection/39984512-c270e9fe-297e-4b27-92c5-831bbeec2ed9?action=share&source=collection_link&creator=39984512"
+	},
+	"item": [
+		{
+			"name": "Customer Orders V1",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Initialize variables if not already set",
+							"if (!pm.environment.get(\"offset\")) {",
+							"    pm.environment.set(\"offset\", 0); // Start at 0",
+							"}",
+							"",
+							"if (!pm.environment.get(\"limit\")) {",
+							"    pm.environment.set(\"limit\", 100); // Fetch 100 items per request",
+							"}",
+							"",
+							"// Set offset and limit as query parameters",
+							"pm.request.url.query.add({ key: \"offset\", value: pm.environment.get(\"offset\") });",
+							"pm.request.url.query.add({ key: \"limit\", value: pm.environment.get(\"limit\") });"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// pm.test(\"Status code is 200\", function () {",
+							"//     pm.response.to.have.status(200);",
+							"// });",
+							"",
+							"// pm.test(\"Response array length is more than one\", function () {",
+							"//     pm.expect(pm.response.json().length).to.be.above(1);",
+							"// });",
+							"",
+							"// const limit = pm.request.url.query.find(param => param.key === 'limit');",
+							"",
+							"// // We're gonna test 5 random orders from the results",
+							"// const randomIndices = [0]; // always include the first one",
+							"// while (randomIndices.length < 5) {",
+							"//     const randomIndex = Math.floor(Math.random() * (limit - 1)) + 1; // Range: 1 to limit - 1",
+							"//     if (!randomIndices.includes(randomIndex)) {",
+							"//         randomIndices.push(randomIndex);",
+							"//     }",
+							"// }",
+							"",
+							"// for (const i in randomIndices) {",
+							"//     const customerOrder = pm.response.json()[i];",
+							"//     Object.keys(customerOrder).forEach(key => {",
+							"//         if (key.toLowerCase().endsWith('dollaramountincents')) {",
+							"//             pm.test(`${key} for order ${customerOrder.id} is not a negative value`, function () {",
+							"//                 pm.expect(customerOrder[key]).to.be.at.least(0);",
+							"//             });",
+							"//         }",
+							"",
+							"//         if (key.startsWith('date')) {",
+							"//             pm.test(`${key} for order ${customerOrder.id} field is an ISO date string or null`, function () {",
+							"//                 const dateValue = customerOrder[key];",
+							"//                 // ISO 8601 date string",
+							"//                 const isoDateRegex = /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$/;",
+							"//                 pm.expect(dateValue === null || isoDateRegex.test(dateValue)).to.be.true;   ",
+							"//             });",
+							"//         }",
+							"//     });",
+							"// }",
+							"",
+							"",
+							"const response = pm.response.json();",
+							"const currentOffset = parseInt(pm.environment.get(\"offset\"));",
+							"const limit = parseInt(pm.environment.get(\"limit\"));",
+							"const totalItems = response.length || 0; // Adjust to match the API's total count field",
+							"console.log({currentOffset})",
+							"",
+							"// Store the data (accumulate in a variable or process it here)",
+							"let allData = pm.environment.get(\"allData\") || [];",
+							"allData = [...allData, ...response]; // Adjust 'response.items' to match your API's data array",
+							"pm.environment.set(\"allData\", allData);",
+							"",
+							"console.log({ currentOffset, limit, totalItems })",
+							"// Determine if more data needs to be fetched",
+							"if (currentOffset + limit < totalItems) {",
+							"    pm.environment.set(\"offset\", currentOffset + limit); // Update the offset for the next page",
+							"",
+							"    // Trigger the next request",
+							"    pm.execution.setNextRequest(pm.info.requestName); // Repeat the current request",
+							"} else {",
+							"    // End the recursion",
+							"    pm.environment.unset(\"offset\");",
+							"    pm.environment.unset(\"limit\");",
+							"    console.log(\"All data fetched:\", allData);",
+							"}"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/customer-orders/v1?limit=100&offset=10&sortOrder=desc&sortBy=dateScheduledForDelivery",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"customer-orders",
+						"v1"
+					],
+					"query": [
+						{
+							"key": "limit",
+							"value": "100"
+						},
+						{
+							"key": "offset",
+							"value": "10"
+						},
+						{
+							"key": "sortOrder",
+							"value": "desc",
+							"description": "Sort order (default: desc, options: asc, desc)"
+						},
+						{
+							"key": "sortBy",
+							"value": "dateScheduledForDelivery",
+							"description": "Field to sort by (default: dateOrdered, options: dateOrdered, dateDelivered, dateCancelled, dateFinished, dateProcessed, dateScheduledForDelivery)"
+						}
+					]
+				},
+				"description": "### **What is Offset?**\n\nIn the context of an API call, **offset** is a parameter used for pagination. Pagination is a technique for breaking a large dataset into smaller, more manageable chunks or pages. The **offset** parameter specifies the number of records to skip before starting to return data.\n\n### How Offset Works:\n\n- **Offset** is typically used alongside a **limit** parameter.\n    \n    - **Limit** defines how many records to return.\n        \n    - **Offset** defines how many records to skip.\n        \n\nFor example, if an API supports these parameters:\n\n- `limit=10`: Return 10 records.\n    \n- `offset=20`: Skip the first 20 records and return the next 10.\n    \n\n### Use Case Example\n\nIf you are fetching items from a database of 100 items:\n\n1. **First Page**: `limit=10&offset=0` → Returns items 1 to 10.\n    \n2. **Second Page**: `limit=10&offset=10` → Returns items 11 to 20.\n    \n3. **Third Page**: `limit=10&offset=20` → Returns items 21 to 30.\n    \n\n### Why Use Offset?\n\nOffset is particularly useful for:\n\n- Scrolling through large datasets.\n    \n- Allowing users to navigate to different pages of data in applications.\n    \n\n### Example API Call\n\n```\nhttpCopy codeGET /items?limit=10&offset=20\n\n ```\n\nThis request would return 10 items starting from the 21st item in the dataset.\n\nEndFragment"
+			},
+			"response": []
+		},
+		{
+			"name": "Inventory V1",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Initialize variables if not already set",
+							"if (!pm.environment.get(\"offset\")) {",
+							"    pm.environment.set(\"offset\", 0); // Start at 0",
+							"}",
+							"",
+							"if (!pm.environment.get(\"limit\")) {",
+							"    pm.environment.set(\"limit\", 100); // Fetch 100 items per request",
+							"}",
+							"",
+							"// Set offset and limit as query parameters",
+							"pm.request.url.query.add({ key: \"offset\", value: pm.environment.get(\"offset\") });",
+							"pm.request.url.query.add({ key: \"limit\", value: pm.environment.get(\"limit\") });"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/inventory/v1?limit=100&offset=0&sortOrder=desc&sortBy=dateBuilt&hideDeleted=false",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"inventory",
+						"v1"
+					],
+					"query": [
+						{
+							"key": "limit",
+							"value": "100"
+						},
+						{
+							"key": "offset",
+							"value": "0"
+						},
+						{
+							"key": "sortOrder",
+							"value": "desc",
+							"description": "Sort order (default: desc, options: asc, desc)"
+						},
+						{
+							"key": "sortBy",
+							"value": "dateBuilt",
+							"description": "Field to sort by (default: dateOrdered, options: dateOrdered, dateDelivered, dateCancelled, dateFinished, dateProcessed, dateScheduledForDelivery)"
+						},
+						{
+							"key": "hideDeleted",
+							"value": "false"
+						}
+					]
+				},
+				"description": "### **What is Offset?**\n\nIn the context of an API call, **offset** is a parameter used for pagination. Pagination is a technique for breaking a large dataset into smaller, more manageable chunks or pages. The **offset** parameter specifies the number of records to skip before starting to return data.\n\n### How Offset Works:\n\n- **Offset** is typically used alongside a **limit** parameter.\n    \n    - **Limit** defines how many records to return.\n        \n    - **Offset** defines how many records to skip.\n        \n\nFor example, if an API supports these parameters:\n\n- `limit=10`: Return 10 records.\n    \n- `offset=20`: Skip the first 20 records and return the next 10.\n    \n\n### Use Case Example\n\nIf you are fetching items from a database of 100 items:\n\n1. **First Page**: `limit=10&offset=0` → Returns items 1 to 10.\n    \n2. **Second Page**: `limit=10&offset=10` → Returns items 11 to 20.\n    \n3. **Third Page**: `limit=10&offset=20` → Returns items 21 to 30.\n    \n\n### Why Use Offset?\n\nOffset is particularly useful for:\n\n- Scrolling through large datasets.\n    \n- Allowing users to navigate to different pages of data in applications.\n    \n\n### Example API Call\n\n```\nhttpCopy codeGET /items?limit=10&offset=20\n\n ```\n\nThis request would return 10 items starting from the 21st item in the dataset.\n\nEndFragment"
+			},
+			"response": []
+		},
+		{
+			"name": "Inventory V1 By ID",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"// Initialize variables if not already set",
+							"if (!pm.environment.get(\"offset\")) {",
+							"    pm.environment.set(\"offset\", 0); // Start at 0",
+							"}",
+							"",
+							"if (!pm.environment.get(\"limit\")) {",
+							"    pm.environment.set(\"limit\", 100); // Fetch 100 items per request",
+							"}",
+							"",
+							"// Set offset and limit as query parameters",
+							"pm.request.url.query.add({ key: \"offset\", value: pm.environment.get(\"offset\") });",
+							"pm.request.url.query.add({ key: \"limit\", value: pm.environment.get(\"limit\") });"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"// pm.test(\"Status code is 200\", function () {",
+							"//     pm.response.to.have.status(200);",
+							"// });",
+							"",
+							"// pm.test(\"Response array length is more than one\", function () {",
+							"//     pm.expect(pm.response.json().length).to.be.above(1);",
+							"// });",
+							"",
+							"// const limit = pm.request.url.query.find(param => param.key === 'limit');",
+							"",
+							"// // We're gonna test 5 random orders from the results",
+							"// const randomIndices = [0]; // always include the first one",
+							"// while (randomIndices.length < 5) {",
+							"//     const randomIndex = Math.floor(Math.random() * (limit - 1)) + 1; // Range: 1 to limit - 1",
+							"//     if (!randomIndices.includes(randomIndex)) {",
+							"//         randomIndices.push(randomIndex);",
+							"//     }",
+							"// }",
+							"",
+							"// for (const i in randomIndices) {",
+							"//     const customerOrder = pm.response.json()[i];",
+							"//     Object.keys(customerOrder).forEach(key => {",
+							"//         if (key.toLowerCase().endsWith('dollaramountincents')) {",
+							"//             pm.test(`${key} for order ${customerOrder.id} is not a negative value`, function () {",
+							"//                 pm.expect(customerOrder[key]).to.be.at.least(0);",
+							"//             });",
+							"//         }",
+							"",
+							"//         if (key.startsWith('date')) {",
+							"//             pm.test(`${key} for order ${customerOrder.id} field is an ISO date string or null`, function () {",
+							"//                 const dateValue = customerOrder[key];",
+							"//                 // ISO 8601 date string",
+							"//                 const isoDateRegex = /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$/;",
+							"//                 pm.expect(dateValue === null || isoDateRegex.test(dateValue)).to.be.true;   ",
+							"//             });",
+							"//         }",
+							"//     });",
+							"// }",
+							"",
+							"",
+							"const response = pm.response.json();",
+							"const currentOffset = parseInt(pm.environment.get(\"offset\"));",
+							"const limit = parseInt(pm.environment.get(\"limit\"));",
+							"const totalItems = response.length || 0; // Adjust to match the API's total count field",
+							"console.log({currentOffset})",
+							"",
+							"// Store the data (accumulate in a variable or process it here)",
+							"let allData = pm.environment.get(\"allData\") || [];",
+							"allData = [...allData, ...response]; // Adjust 'response.items' to match your API's data array",
+							"pm.environment.set(\"allData\", allData);",
+							"",
+							"console.log({ currentOffset, limit, totalItems })",
+							"// Determine if more data needs to be fetched",
+							"if (currentOffset + limit < totalItems) {",
+							"    pm.environment.set(\"offset\", currentOffset + limit); // Update the offset for the next page",
+							"",
+							"    // Trigger the next request",
+							"    pm.execution.setNextRequest(pm.info.requestName); // Repeat the current request",
+							"} else {",
+							"    // End the recursion",
+							"    pm.environment.unset(\"offset\");",
+							"    pm.environment.unset(\"limit\");",
+							"    console.log(\"All data fetched:\", allData);",
+							"}"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/inventory/v1/381663?limit=100&offset=10&sortOrder=desc&sortBy=dateBuilt",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"inventory",
+						"v1",
+						"381663"
+					],
+					"query": [
+						{
+							"key": "limit",
+							"value": "100"
+						},
+						{
+							"key": "offset",
+							"value": "10"
+						},
+						{
+							"key": "sortOrder",
+							"value": "desc",
+							"description": "Sort order (default: desc, options: asc, desc)"
+						},
+						{
+							"key": "sortBy",
+							"value": "dateBuilt",
+							"description": "Field to sort by (default: dateOrdered, options: dateOrdered, dateDelivered, dateCancelled, dateFinished, dateProcessed, dateScheduledForDelivery)"
+						}
+					]
+				},
+				"description": "### **What is Offset?**\n\nIn the context of an API call, **offset** is a parameter used for pagination. Pagination is a technique for breaking a large dataset into smaller, more manageable chunks or pages. The **offset** parameter specifies the number of records to skip before starting to return data.\n\n### How Offset Works:\n\n- **Offset** is typically used alongside a **limit** parameter.\n    \n    - **Limit** defines how many records to return.\n        \n    - **Offset** defines how many records to skip.\n        \n\nFor example, if an API supports these parameters:\n\n- `limit=10`: Return 10 records.\n    \n- `offset=20`: Skip the first 20 records and return the next 10.\n    \n\n### Use Case Example\n\nIf you are fetching items from a database of 100 items:\n\n1. **First Page**: `limit=10&offset=0` → Returns items 1 to 10.\n    \n2. **Second Page**: `limit=10&offset=10` → Returns items 11 to 20.\n    \n3. **Third Page**: `limit=10&offset=20` → Returns items 21 to 30.\n    \n\n### Why Use Offset?\n\nOffset is particularly useful for:\n\n- Scrolling through large datasets.\n    \n- Allowing users to navigate to different pages of data in applications.\n    \n\n### Example API Call\n\n```\nhttpCopy codeGET /items?limit=10&offset=20\n\n ```\n\nThis request would return 10 items starting from the 21st item in the dataset.\n\nEndFragment"
+			},
+			"response": []
+		},
+		{
+			"name": "Customer Order By ID V1",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"const customerOrder = pm.response.json(); // Assuming the response is a single order object",
+							"",
+							"pm.test(\"Response is an object\", function () {",
+							"    pm.expect(customerOrder).to.be.an(\"object\");",
+							"});",
+							"",
+							"Object.keys(customerOrder).forEach(key => {",
+							"    if (key.toLowerCase().endsWith('dollaramountincents')) {",
+							"        pm.test(`${key} is not a negative value`, function () {",
+							"            pm.expect(customerOrder[key]).to.be.at.least(0);",
+							"        });",
+							"    }",
+							"",
+							"    if (key.startsWith('date')) {",
+							"        pm.test(`${key} field is an ISO date string or null`, function () {",
+							"            const dateValue = customerOrder[key];",
+							"            // ISO 8601 date string",
+							"            const isoDateRegex = /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$/;",
+							"            pm.expect(dateValue === null || isoDateRegex.test(dateValue)).to.be.true;",
+							"        });",
+							"    }",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/customer-orders/v1/323028",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"customer-orders",
+						"v1",
+						"323028"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Public API Tokens",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/tokens/v1",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"tokens",
+						"v1"
+					]
+				},
+				"description": "Requires Shed Suite user JWT"
+			},
+			"response": []
+		},
+		{
+			"name": "Create Public API Token - Bearer Auth",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"tokenName\": \"New one to delete\",\n    \"scopes\": [\"api:write\", \"api:read\"]\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/tokens/v1",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"tokens",
+						"v1"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create Public API Token - Basic Auth",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Set auth_token environment variable\", function () {",
+							"    pm.environment.set(\"auth_token\", pm.response.json().token);",
+							"});",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "basic",
+					"basic": [
+						{
+							"key": "password",
+							"value": "demoadmin",
+							"type": "string"
+						},
+						{
+							"key": "username",
+							"value": "demoadmin@shedsuite.com",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"tokenName\": \"Test Token\",\n    \"scopes\": [\"api:write\", \"api:read\"]\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/tokens/v1",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"tokens",
+						"v1"
+					]
+				},
+				"description": "### POST /tokens/v1\n\nThis endpoint is used to create a new token with specified name and scopes.\n\n#### Request\n\n- Method: POST\n    \n- Base URL: {{baseURL}}\n    \n- Path: {{publicApiUrlPath}}/tokens/v1\n    \n- Headers:\n    \n    - Content-Type: application/json\n        \n- Body:\n    \n    - tokenName (string, required): The name of the token to be created.\n        \n    - scopes (array, required): The scopes to be assigned to the token.\n        \n\n#### Response\n\nThe response is in JSON format and has the following schema:\n\n``` json\n{\n  \"type\": \"object\",\n  \"properties\": {\n    \"tokenId\": {\n      \"type\": \"string\"\n    },\n    \"name\": {\n      \"type\": \"string\"\n    },\n    \"userId\": {\n      \"type\": \"integer\"\n    },\n    \"createdAt\": {\n      \"type\": \"string\"\n    },\n    \"message\": {\n      \"type\": \"string\"\n    },\n    \"token\": {\n      \"type\": \"string\"\n    }\n  }\n}\n\n ```\n\n- Status: 200\n    \n- Content-Type: application/json"
+			},
+			"response": []
+		},
+		{
+			"name": "Revoke Public API Token",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/tokens/v1/769e58a6-93dc-4658-9aaa-7ada215436e5",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"tokens",
+						"v1",
+						"769e58a6-93dc-4658-9aaa-7ada215436e5"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Fetch Contacts V1",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{auth_token}}",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/contacts/v1?limit=5",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"contacts",
+						"v1"
+					],
+					"query": [
+						{
+							"key": "limit",
+							"value": "5"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create Contact V1",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"firstName\": \"Sean1\",\n    \"lastName\": \"Walsh2\",\n    \"email\": \"sean+431@shedsuite.com\",\n    \"zipCode\": \"12345\",\n    \"phone\": \"12321312\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/contacts/v1",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"contacts",
+						"v1"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Fetch Contact By ID V1",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{auth_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/{{publicApiUrlPath}}/contacts/v1/760885",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"{{publicApiUrlPath}}",
+						"contacts",
+						"v1",
+						"760885"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "Public API Token 1",
+			"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI4ZDAwNzYwLTFlZDQtNGVlMC1iMDczLTg1YzdiMWQ4ODBjNyIsImNvbXBhbnlfaWQiOjIsInVzZXJfaWQiOjMxLCJzY29wZXMiOlsiYXBpOnJlYWQiLCJhcGk6d3JpdGUiXSwicm9sZSI6InNoZWRzdWl0ZV9vZmZpY2VfYWRtaW4iLCJpYXQiOjE3MzI1MzY0Mjl9.ae7qkbYnRP91e-t5dpNYjCY86D8JGGEJLEK6POKdm0c"
+		},
+		{
+			"key": "Public API Token 2: Only with write scope",
+			"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjM0OWIxNzFjLTlhMDctNDZhNy04N2IzLWNmNzZhNjc5MTQ0NiIsImNvbXBhbnlfaWQiOjIsInVzZXJfaWQiOjMxLCJzY29wZXMiOlsiYXBpOndyaXRlIl0sInJvbGUiOiJzaGVkc3VpdGVfb2ZmaWNlX2FkbWluIiwiaWF0IjoxNzMyNTM3MDczfQ.XuFlEhZ-jY5Dxb8k6R7twZdVfys0I8BzaRTOAdFZDDU"
+		},
+		{
+			"key": "Public API Token - REVOKED",
+			"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Ijc1MzUwNzJmLTEzNmUtNDU5OS04MDdkLTZmYmI0NjFmMjE1OSIsImNvbXBhbnlfaWQiOjIsInVzZXJfaWQiOjMxLCJzY29wZXMiOlsiYXBpOndyaXRlIiwiYXBpOnJlYWQiXSwicm9sZSI6InNoZWRzdWl0ZV9vZmZpY2VfYWRtaW4iLCJpYXQiOjE3MzI1Mzc4NDN9.YPP3rjij4_VAfjgh2VzdvZApn6X3RUllHZ1ANF-gKV4"
+		},
+		{
+			"key": "publicApiUrlPath",
+			"value": "api/public"
+		}
+	]
+}
