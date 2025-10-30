@@ -71,7 +71,7 @@ npm run sync
 3. Create the `inventory_items` table in Supabase (see Step 2 above)
 4. Deploy - Railway will automatically:
    - Start the web service on port 8080
-   - Run hourly sync via cron job (`npm run sync`)
+   - Run sync every 15 minutes via cron job (`npm run sync`)
 
 ### Detailed Instructions
 See [RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md) for complete deployment guide.

@@ -11,7 +11,7 @@ restartPolicyMaxRetries = 3
 
 [cron]
   [cron.inventory_sync]
-  schedule = "0 * * * *" # hourly at top of each hour
+  schedule = "*/15 * * * *" # every 15 minutes
   command = "npm run sync"
 
 

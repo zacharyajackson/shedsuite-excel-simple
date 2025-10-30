@@ -126,7 +126,7 @@ Once deployed, check:
 
 - **Railway Dashboard**: Monitor service health, logs, and metrics
 - **Supabase Dashboard**: Check the `inventory_items` table for synced data
-- **Sync Schedule**: Runs hourly via cron (configured in `Railway.toml`)
+- **Sync Schedule**: Runs every 15 minutes via cron (configured in `Railway.toml`)
 
 ## Troubleshooting
 
