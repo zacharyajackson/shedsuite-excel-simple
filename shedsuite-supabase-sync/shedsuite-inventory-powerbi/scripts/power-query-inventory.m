@@ -23,8 +23,8 @@
 
 let
     // ==== CONFIGURATION (UPDATE THESE) ====
-    ApiBase   = "https://your-project.supabase.co",  // Replace with your Supabase URL
-    ApiKey    = "your_anon_key_here",                 // Replace with your Supabase anon key
+    ApiBase   = "https://jccocoydanyspnorhvth.supabase.co",  // Replace with your Supabase URL
+    ApiKey    = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpjY29jb3lkYW55c3Bub3JodnRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwODQ5OTAsImV4cCI6MjA3NjY2MDk5MH0.JfCmZH-09gU0akekWR7eC0-xRKxqDo_NnDzalGnJQkA",                 // Replace with your Supabase anon key
     // ==== SOURCE SETTINGS ====
     ResourcePath = "rest/v1/inventory_items",
     PageSize     = 1000,
